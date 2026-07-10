@@ -14,6 +14,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
 from stt_progress import read_progress
+from json_format import dump_numbered
 from transcript_utils import (
     CALL_LIMIT,
     clean_saved_messages,
@@ -97,8 +98,7 @@ def reload_sarvam_transcripts() -> None:
 
 
 def save_corrections() -> None:
-    with CORRECTIONS_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(corrections, handle, ensure_ascii=False, indent=2)
+    dump_numbered(CORRECTIONS_PATH, corrections, call_order)
 
 
 def recording_number(call_id: str) -> int | None:
@@ -257,6 +257,7 @@ def save_correct(call_id: str):
 
     cleaned = clean_saved_messages(original, messages)
     corrections[call_id] = {
+        "number": recording_number(call_id),
         "callLogId": call_id,
         "messages": cleaned,
         "updatedAt": datetime.now(timezone.utc).isoformat(),

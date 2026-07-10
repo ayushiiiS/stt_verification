@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+from json_format import dump_numbered
 from stt_progress import read_progress, write_progress
 from sarvam_stt import SARVAM_MODEL, SARVAM_MODE, transcribe_audio_url
 from transcript_utils import CALL_LIMIT, align_stt_segments, visible_messages
@@ -28,9 +29,10 @@ DEFAULT_WORKERS = int(os.environ.get("SARVAM_PARALLEL_WORKERS", "5"))
 
 
 class TranscriptStore:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, call_order: list[str] | None = None) -> None:
         self.path = path
         self.lock_path = SARVAM_LOCK_PATH
+        self.call_order = call_order
         self._lock = threading.Lock()
         self.data = self._read()
 
@@ -66,10 +68,7 @@ class TranscriptStore:
             try:
                 self.data = self._read()
                 self.data[call_id] = entry
-                tmp = self.path.with_suffix(".tmp")
-                with tmp.open("w", encoding="utf-8") as handle:
-                    json.dump(self.data, handle, ensure_ascii=False, indent=2)
-                tmp.replace(self.path)
+                dump_numbered(self.path, self.data, self.call_order)
             finally:
                 lock_handle.close()
 
@@ -135,7 +134,8 @@ def main() -> None:
         raise SystemExit("--workers must be at least 1")
 
     calls = load_calls(args.limit)
-    store = TranscriptStore(SARVAM_PATH)
+    call_order = [call["id"] for call in calls]
+    store = TranscriptStore(SARVAM_PATH, call_order=call_order)
 
     if args.call_id:
         calls = [call for call in calls if call["id"] == args.call_id]

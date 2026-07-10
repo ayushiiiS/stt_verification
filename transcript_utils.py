@@ -106,8 +106,9 @@ def clean_saved_messages(
     original_messages: list[dict], edited_messages: list[dict]
 ) -> list[dict]:
     cleaned: list[dict] = []
-    for orig, edited in zip(original_messages, edited_messages):
+    for i, (orig, edited) in enumerate(zip(original_messages, edited_messages), start=1):
         entry = {
+            "n": i,
             "_id": orig["_id"],
             "role": orig["role"],
             "type": orig["type"],
