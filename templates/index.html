@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transcript Review</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Call Transcript Review</h1>
+      <p class="subtitle">First 1,000 calls · Sarvam STT and editable final transcript</p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="progress-panel" id="progressPanel">
+    <div class="progress-header">
+      <span class="progress-title">Sarvam STT progress</span>
+      <span class="progress-meta" id="progressMeta">Loading…</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+  </div>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-controls">
+        <input type="search" id="search" placeholder="Search call ID…" />
+        <select id="statusFilter">
+          <option value="all">All statuses</option>
+          <option value="pending">Pending review</option>
+          <option value="edited">Final saved</option>
+        </select>
+      </div>
+      <ul class="call-list" id="callList"></ul>
+      <div class="pagination" id="pagination"></div>
+    </aside>
+
+    <section class="workspace" id="workspace">
+      <div class="empty-state" id="emptyState">
+        <p>Select a call from the list to play audio and review transcripts.</p>
+      </div>
+
+      <div class="call-detail hidden" id="callDetail">
+        <div class="detail-header">
+          <div>
+            <h2 id="callId"></h2>
+            <p class="meta" id="callMeta"></p>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn secondary" id="resetBtn">Reset to Sarvam</button>
+            <button type="button" class="btn primary" id="saveBtn">Save final transcript</button>
+          </div>
+        </div>
+
+        <div class="audio-panel">
+          <audio id="player" controls preload="none"></audio>
+        </div>
+
+        <div class="transcript-grid" id="transcriptGrid"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

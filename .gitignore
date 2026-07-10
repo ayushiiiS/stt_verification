@@ -1,0 +1,15 @@
+.venv/
+.env
+corrected_transcripts.json
+sarvam_transcripts.json
+stt_progress.json
+sarvam_transcripts.lock
+sarvam_transcripts.tmp
+gemini_transcripts.json
+__pycache__/
+*.pyc
+.DS_Store
+
+# Large local data files (keep on disk, do not commit)
+ai-agents-production.transcripts.json
+muthoot_with_public_urls .csv
