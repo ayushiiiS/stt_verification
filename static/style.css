@@ -171,11 +171,20 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 0.35rem;
 }
 
+.call-item-number {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+  min-width: 2.5rem;
+}
+
 .call-item-id {
+  flex: 1 1 auto;
   font-size: 0.78rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--muted);

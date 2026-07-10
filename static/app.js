@@ -120,6 +120,7 @@ async function loadCalls() {
       <li>
         <button type="button" class="call-item ${item.id === state.selectedId ? "active" : ""}" data-id="${item.id}">
           <div class="call-item-top">
+            <span class="call-item-number">#${item.number}</span>
             <span class="call-item-id">${item.id}</span>
             <span class="badge-wrap">
               ${sttBadge}
@@ -213,7 +214,7 @@ async function selectCall(callId) {
 
   els.emptyState.classList.add("hidden");
   els.callDetail.classList.remove("hidden");
-  els.callId.textContent = call.id;
+  els.callId.textContent = call.number != null ? `#${call.number} · ${call.id}` : call.id;
   els.player.src = call.public_url || "";
   els.player.load();
   els.resetBtn.textContent = call.hasStt ? "Reset to Sarvam" : "Reset to default";

@@ -101,6 +101,13 @@ def save_corrections() -> None:
         json.dump(corrections, handle, ensure_ascii=False, indent=2)
 
 
+def recording_number(call_id: str) -> int | None:
+    try:
+        return call_order.index(call_id) + 1
+    except ValueError:
+        return None
+
+
 def get_stt_messages(call_id: str, original_messages: list[dict]) -> list[dict] | None:
     entry = sarvam_transcripts.get(call_id)
     if not entry:
@@ -131,6 +138,7 @@ def build_call_payload(call_id: str) -> dict:
 
     return {
         "id": call_id,
+        "number": recording_number(call_id),
         "public_url": call.get("public_url", ""),
         "recordingUrl": call.get("recordingUrl", ""),
         "hasStt": has_stt,
@@ -181,7 +189,13 @@ def list_calls():
 
     filtered = call_order
     if search:
-        filtered = [cid for cid in filtered if search in cid.lower()]
+        if search.isdigit():
+            num = int(search)
+            filtered = [
+                cid for i, cid in enumerate(filtered, start=1) if i == num or search in cid.lower()
+            ]
+        else:
+            filtered = [cid for cid in filtered if search in cid.lower()]
     if status == "edited":
         filtered = [cid for cid in filtered if cid in corrections]
     elif status == "pending":
@@ -199,6 +213,7 @@ def list_calls():
         items.append(
             {
                 "id": call_id,
+                "number": recording_number(call_id),
                 "preview": preview_text(messages),
                 "messageCount": len(visible_messages(messages)),
                 "edited": call_id in corrections,
