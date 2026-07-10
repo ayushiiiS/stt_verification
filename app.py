@@ -17,6 +17,7 @@ from stt_progress import read_progress
 from json_format import dump_numbered
 from transcript_utils import (
     CALL_LIMIT,
+    align_stt_segments,
     clean_saved_messages,
     default_final_messages,
     preview_text,
@@ -112,10 +113,19 @@ def get_stt_messages(call_id: str, original_messages: list[dict]) -> list[dict] 
     entry = sarvam_transcripts.get(call_id)
     if not entry:
         return None
-    messages = entry.get("messages", [])
-    if len(messages) != len(original_messages):
-        return None
-    return messages
+
+    messages = [
+        msg
+        for msg in entry.get("messages", [])
+        if msg.get("type") != "language_switch"
+    ]
+    if len(messages) == len(original_messages):
+        return messages
+
+    segments = entry.get("segments") or []
+    if segments:
+        return align_stt_segments(original_messages, segments)
+    return None
 
 
 def build_call_payload(call_id: str) -> dict:
@@ -126,8 +136,12 @@ def build_call_payload(call_id: str) -> dict:
 
     saved = corrections.get(call_id)
     if saved:
-        final_messages = saved.get("messages", [])
-        if len(final_messages) != len(original_messages):
+        final_messages = [
+            msg
+            for msg in saved.get("messages", [])
+            if msg.get("type") != "language_switch"
+        ]
+        if not final_messages:
             final_messages = default_final_messages(
                 original_messages, stt_messages, has_stt=has_stt
             )
@@ -248,14 +262,10 @@ def save_correct(call_id: str):
 
     payload = request.get_json(silent=True) or {}
     messages = payload.get("messages")
-    if not isinstance(messages, list):
+    if not isinstance(messages, list) or not messages:
         return jsonify({"error": "messages array required"}), 400
 
-    original = visible_messages(calls_by_id[call_id].get("messages", []))
-    if len(messages) != len(original):
-        return jsonify({"error": "message count must match transcript structure"}), 400
-
-    cleaned = clean_saved_messages(original, messages)
+    cleaned = clean_saved_messages(messages)
     corrections[call_id] = {
         "number": recording_number(call_id),
         "callLogId": call_id,

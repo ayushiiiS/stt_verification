@@ -5,6 +5,7 @@ const state = {
   status: "all",
   selectedId: null,
   currentCall: null,
+  draft: [],
   searchTimer: null,
 };
 
@@ -58,7 +59,10 @@ async function loadStats(options = {}) {
     if (state.selectedId) {
       const call = await fetchJSON(`/api/calls/${state.selectedId}`);
       state.currentCall = call;
-      renderTranscript(call);
+      if (!state.currentCall.edited) {
+        buildDraft(call);
+        renderTranscript();
+      }
       updateMeta();
     }
   }
@@ -149,53 +153,138 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;");
 }
 
-function roleLabel(msg) {
-  if (msg.type === "language_switch" && msg.switchNo) {
-    return `Switch ${msg.switchNo}`;
-  }
-  return msg.role;
+function buildDraft(call) {
+  const finals = call.final_messages || [];
+  const stt = call.stt_messages || [];
+  const originals = call.messages || [];
+
+  state.draft = finals.map((msg, index) => {
+    const sttContent =
+      index < stt.length
+        ? stt[index]?.content ?? ""
+        : index < originals.length
+          ? ""
+          : "";
+    return {
+      _id: msg._id || originals[index]?._id || `draft-${index + 1}`,
+      role: msg.role === "user" ? "user" : "assistant",
+      type: "message",
+      createdAt: msg.createdAt || originals[index]?.createdAt || "",
+      content: msg.content ?? "",
+      sttContent: sttContent || (index < stt.length ? stt[index]?.content ?? "" : ""),
+      added: index >= originals.length,
+    };
+  });
+
+  // Prefer STT text for display when available on original-length rows
+  state.draft.forEach((row, index) => {
+    if (index < stt.length) {
+      row.sttContent = stt[index]?.content ?? "";
+    } else {
+      row.sttContent = "";
+    }
+  });
 }
 
-function renderTranscript(call) {
-  const messages = call.messages;
-  const stt = call.stt_messages || [];
-  const finalMessages = call.final_messages;
+function syncDraftFromDom() {
+  const cards = [...els.transcriptGrid.querySelectorAll(".message-card")];
+  cards.forEach((card) => {
+    const index = Number(card.dataset.index);
+    if (!state.draft[index]) return;
+    const roleSelect = card.querySelector(".role-select");
+    const textarea = card.querySelector(".final-input");
+    if (roleSelect) state.draft[index].role = roleSelect.value;
+    if (textarea) state.draft[index].content = textarea.value;
+  });
+}
 
-  els.transcriptGrid.innerHTML = messages
+function renderTranscript() {
+  els.transcriptGrid.innerHTML = state.draft
     .map((msg, index) => {
-      const roleClass =
-        msg.role === "user" || msg.role === "assistant"
-          ? msg.role
-          : msg.type === "language_switch"
-            ? "switch"
-            : "";
-      const finalContent = finalMessages[index]?.content ?? "";
-      const sttContent = stt[index]?.content ?? "Not generated yet";
-
+      const sttContent = msg.sttContent?.trim()
+        ? msg.sttContent
+        : msg.added
+          ? "—"
+          : "Not generated yet";
       return `
-        <article class="message-card" data-index="${index}">
-          <div class="message-header">
-            <span class="role ${roleClass}">${escapeHtml(roleLabel(msg))}</span>
-            <span class="message-type">${msg.type === "language_switch" ? "language switch" : "transcript"}</span>
-          </div>
-          <div>
-            <div class="column-label">Sarvam STT</div>
-            <div class="stt-text">${escapeHtml(sttContent)}</div>
-          </div>
-          <div>
-            <div class="column-label">Final</div>
-            <textarea class="final-input" data-index="${index}">${escapeHtml(finalContent)}</textarea>
-          </div>
-        </article>
+        <div class="turn-block" data-index="${index}">
+          <article class="message-card" data-index="${index}">
+            <div class="message-header">
+              <label class="role-label">
+                <span class="sr-only">Role</span>
+                <select class="role-select ${msg.role}" data-index="${index}">
+                  <option value="assistant" ${msg.role === "assistant" ? "selected" : ""}>assistant</option>
+                  <option value="user" ${msg.role === "user" ? "selected" : ""}>user</option>
+                </select>
+              </label>
+              <div class="message-header-actions">
+                <span class="message-type">${msg.added ? "added turn" : "transcript"}</span>
+                <button type="button" class="delete-turn-btn" data-index="${index}" title="Delete this turn" ${state.draft.length <= 1 ? "disabled" : ""}>Delete</button>
+              </div>
+            </div>
+            <div>
+              <div class="column-label">Sarvam STT</div>
+              <div class="stt-text">${escapeHtml(sttContent)}</div>
+            </div>
+            <div>
+              <div class="column-label">Final</div>
+              <textarea class="final-input" data-index="${index}">${escapeHtml(msg.content)}</textarea>
+            </div>
+          </article>
+          <button type="button" class="add-turn-btn" data-after="${index}" title="Add turn after this">+</button>
+        </div>
       `;
     })
     .join("");
+
+  els.transcriptGrid.querySelectorAll(".role-select").forEach((select) => {
+    select.onchange = () => {
+      const index = Number(select.dataset.index);
+      state.draft[index].role = select.value;
+      select.classList.remove("user", "assistant");
+      select.classList.add(select.value);
+    };
+  });
+
+  els.transcriptGrid.querySelectorAll(".delete-turn-btn").forEach((btn) => {
+    btn.onclick = () => {
+      if (state.draft.length <= 1) {
+        showToast("Keep at least one turn");
+        return;
+      }
+      syncDraftFromDom();
+      const index = Number(btn.dataset.index);
+      state.draft.splice(index, 1);
+      renderTranscript();
+      updateMeta();
+    };
+  });
+
+  els.transcriptGrid.querySelectorAll(".add-turn-btn").forEach((btn) => {
+    btn.onclick = () => {
+      syncDraftFromDom();
+      const after = Number(btn.dataset.after);
+      const prev = state.draft[after];
+      const nextRole = prev?.role === "assistant" ? "user" : "assistant";
+      state.draft.splice(after + 1, 0, {
+        _id: `added-${Date.now()}-${after + 1}`,
+        role: nextRole,
+        type: "message",
+        createdAt: "",
+        content: "",
+        sttContent: "",
+        added: true,
+      });
+      renderTranscript();
+      updateMeta();
+    };
+  });
 }
 
 function updateMeta() {
   const call = state.currentCall;
   if (!call) return;
-  const parts = [`${call.messages.length} messages`];
+  const parts = [`${state.draft.length} turns`];
   parts.push(call.hasStt ? "Sarvam STT ready" : "Sarvam STT pending");
   if (call.edited && call.updatedAt) {
     parts.push(`saved ${new Date(call.updatedAt).toLocaleString()}`);
@@ -211,6 +300,7 @@ async function selectCall(callId) {
 
   const call = await fetchJSON(`/api/calls/${callId}`);
   state.currentCall = call;
+  buildDraft(call);
 
   els.emptyState.classList.add("hidden");
   els.callDetail.classList.remove("hidden");
@@ -219,15 +309,18 @@ async function selectCall(callId) {
   els.player.load();
   els.resetBtn.textContent = call.hasStt ? "Reset to Sarvam" : "Reset to default";
 
-  renderTranscript(call);
+  renderTranscript();
   updateMeta();
 }
 
 function collectFinalMessages() {
-  const textareas = [...els.transcriptGrid.querySelectorAll(".final-input")];
-  return textareas.map((textarea, index) => ({
-    ...state.currentCall.messages[index],
-    content: textarea.value,
+  syncDraftFromDom();
+  return state.draft.map((msg) => ({
+    _id: msg._id,
+    role: msg.role,
+    type: "message",
+    createdAt: msg.createdAt || "",
+    content: msg.content,
   }));
 }
 
@@ -261,7 +354,8 @@ async function resetFinal() {
     state.currentCall.final_messages = result.final_messages;
     state.currentCall.edited = false;
     state.currentCall.updatedAt = null;
-    renderTranscript(state.currentCall);
+    buildDraft(state.currentCall);
+    renderTranscript();
     updateMeta();
     await loadStats();
     await loadCalls();

@@ -45,19 +45,21 @@
       </div>
 
       <div class="call-detail hidden" id="callDetail">
-        <div class="detail-header">
-          <div>
-            <h2 id="callId"></h2>
-            <p class="meta" id="callMeta"></p>
+        <div class="sticky-top">
+          <div class="detail-header">
+            <div>
+              <h2 id="callId"></h2>
+              <p class="meta" id="callMeta"></p>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn secondary" id="resetBtn">Reset to Sarvam</button>
+              <button type="button" class="btn primary" id="saveBtn">Save final transcript</button>
+            </div>
           </div>
-          <div class="actions">
-            <button type="button" class="btn secondary" id="resetBtn">Reset to Sarvam</button>
-            <button type="button" class="btn primary" id="saveBtn">Save final transcript</button>
-          </div>
-        </div>
 
-        <div class="audio-panel">
-          <audio id="player" controls preload="none"></audio>
+          <div class="audio-panel">
+            <audio id="player" controls preload="none"></audio>
+          </div>
         </div>
 
         <div class="transcript-grid" id="transcriptGrid"></div>
