@@ -1,7 +1,6 @@
 .venv/
 .env
 corrected_transcripts.json
-sarvam_transcripts.json
 stt_progress.json
 sarvam_transcripts.lock
 sarvam_transcripts.tmp

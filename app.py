@@ -23,8 +23,16 @@ from transcript_utils import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-TRANSCRIPTS_PATH = BASE_DIR / "ai-agents-production.transcripts.json"
-CSV_PATH = BASE_DIR / "muthoot_with_public_urls .csv"
+TRANSCRIPTS_PATH = (
+    BASE_DIR / "data_transcripts.json"
+    if (BASE_DIR / "data_transcripts.json").exists()
+    else BASE_DIR / "ai-agents-production.transcripts.json"
+)
+CSV_PATH = (
+    BASE_DIR / "data_calls.csv"
+    if (BASE_DIR / "data_calls.csv").exists()
+    else BASE_DIR / "muthoot_with_public_urls .csv"
+)
 CORRECTIONS_PATH = BASE_DIR / "corrected_transcripts.json"
 SARVAM_PATH = BASE_DIR / "sarvam_transcripts.json"
 
@@ -258,4 +266,4 @@ if __name__ == "__main__":
     print(f"Loaded {len(call_order)} calls (first {CALL_LIMIT})")
     print(f"Sarvam STT generated: {len(sarvam_transcripts)} transcripts")
     port = int(os.environ.get("PORT", 5050))
-    app.run(host="127.0.0.1", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True)
