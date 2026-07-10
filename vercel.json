@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "api/index.py" }
+  ],
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "{data_calls.csv,data_transcripts.json,sarvam_transcripts.json,templates/**,static/**}"
+    }
+  }
+}
