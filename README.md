@@ -9,10 +9,22 @@ cd golden_set
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+## Run the UI
+
+```bash
+source .venv/bin/activate
 python app.py
 ```
 
-Open **http://127.0.0.1:5050**
+Then open **http://127.0.0.1:5050**
+
+Optional port override:
+
+```bash
+PORT=5050 python app.py
+```
 
 ## Sarvam STT generation
 
@@ -116,6 +128,7 @@ Keyboard shortcut: **Cmd/Ctrl + S** to save.
 golden_set/
 ├── app.py
 ├── transcript_utils.py
+├── json_format.py
 ├── sarvam_stt.py
 ├── generate_sarvam_transcripts.py
 ├── requirements.txt
@@ -128,4 +141,3 @@ golden_set/
 ├── sarvam_transcripts.json          # generated
 └── corrected_transcripts.json       # generated on save
 ```
-# stt_verification
