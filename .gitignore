@@ -1,9 +1,12 @@
 .venv/
 .env
 corrected_transcripts.json
+indiamart_corrected_transcripts.json
+indiamart_stt_progress.json
 stt_progress.json
 sarvam_transcripts.lock
 sarvam_transcripts.tmp
+indiamart_sarvam_transcripts.lock
 gemini_transcripts.json
 __pycache__/
 *.pyc

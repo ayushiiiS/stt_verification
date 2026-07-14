@@ -1,4 +1,5 @@
 const state = {
+  dataset: "muthoot",
   page: 1,
   perPage: 50,
   search: "",
@@ -11,6 +12,8 @@ const state = {
 
 const els = {
   stats: document.getElementById("stats"),
+  subtitle: document.getElementById("subtitle"),
+  datasetTabs: document.getElementById("datasetTabs"),
   progressPanel: document.getElementById("progressPanel"),
   progressFill: document.getElementById("progressFill"),
   progressMeta: document.getElementById("progressMeta"),
@@ -24,10 +27,21 @@ const els = {
   callMeta: document.getElementById("callMeta"),
   player: document.getElementById("player"),
   transcriptGrid: document.getElementById("transcriptGrid"),
+  prevCallBtn: document.getElementById("prevCallBtn"),
+  nextCallBtn: document.getElementById("nextCallBtn"),
   saveBtn: document.getElementById("saveBtn"),
   resetBtn: document.getElementById("resetBtn"),
   toast: document.getElementById("toast"),
 };
+
+function datasetParams(extra = {}) {
+  return new URLSearchParams({ dataset: state.dataset, ...extra });
+}
+
+function apiUrl(path, extra = {}) {
+  const params = datasetParams(extra);
+  return `${path}?${params}`;
+}
 
 function showToast(message) {
   els.toast.textContent = message;
@@ -45,8 +59,23 @@ async function fetchJSON(url, options) {
   return data;
 }
 
+function updateDatasetChrome() {
+  els.datasetTabs.querySelectorAll(".dataset-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.dataset === state.dataset);
+  });
+
+  if (state.dataset === "muthoot") {
+    els.subtitle.textContent =
+      "Muthoot · first 1,000 calls · Original, Sarvam STT, and editable final";
+  } else {
+    els.subtitle.textContent =
+      "IndiaMART · 63 calls · Original, Sarvam STT, and editable final";
+  }
+  els.progressPanel.classList.remove("hidden");
+}
+
 async function loadStats(options = {}) {
-  const data = await fetchJSON("/api/stats");
+  const data = await fetchJSON(apiUrl("/api/stats"));
   els.stats.innerHTML = `
     <span class="stat-pill">Total: ${data.total}</span>
     <span class="stat-pill">Final saved: ${data.edited}</span>
@@ -57,13 +86,14 @@ async function loadStats(options = {}) {
   if (options.refreshCalls && data.sttProgress?.running) {
     await loadCalls();
     if (state.selectedId) {
-      const call = await fetchJSON(`/api/calls/${state.selectedId}`);
+      const call = await fetchJSON(apiUrl(`/api/calls/${state.selectedId}`));
       state.currentCall = call;
       if (!state.currentCall.edited) {
         buildDraft(call);
         renderTranscript();
       }
       updateMeta();
+      updateNavButtons();
     }
   }
 }
@@ -71,13 +101,18 @@ async function loadStats(options = {}) {
 function renderSttProgress(progress, sttGenerated, total) {
   const saved = progress?.savedTotal ?? sttGenerated ?? 0;
   const targetTotal = progress?.total || total || 0;
-  const percent = progress?.percent ?? (targetTotal ? Math.round((saved / targetTotal) * 1000) / 10 : 0);
+  const percent =
+    progress?.percent ??
+    (targetTotal ? Math.round((saved / targetTotal) * 1000) / 10 : 0);
   const running = Boolean(progress?.running);
   const failed = progress?.failed ?? 0;
 
   els.progressFill.style.width = `${Math.min(100, percent)}%`;
   els.progressPanel.classList.toggle("running", running);
-  els.progressPanel.classList.toggle("complete", !running && saved >= targetTotal && targetTotal > 0);
+  els.progressPanel.classList.toggle(
+    "complete",
+    !running && saved >= targetTotal && targetTotal > 0
+  );
 
   const parts = [`${saved}/${targetTotal} transcribed (${percent}%)`];
   if (running) {
@@ -108,13 +143,15 @@ function renderPagination(data) {
 }
 
 async function loadCalls() {
-  const params = new URLSearchParams({
-    page: state.page,
-    per_page: state.perPage,
-    search: state.search,
-    status: state.status,
-  });
-  const data = await fetchJSON(`/api/calls?${params}`);
+  const data = await fetchJSON(
+    apiUrl("/api/calls", {
+      page: state.page,
+      per_page: state.perPage,
+      search: state.search,
+      status: state.status,
+    })
+  );
+
   els.callList.innerHTML = data.items
     .map((item) => {
       const sttBadge = item.hasStt
@@ -155,35 +192,19 @@ function escapeHtml(text) {
 
 function buildDraft(call) {
   const finals = call.final_messages || [];
-  const stt = call.stt_messages || [];
   const originals = call.messages || [];
+  const stt = call.stt_messages || [];
 
-  state.draft = finals.map((msg, index) => {
-    const sttContent =
-      index < stt.length
-        ? stt[index]?.content ?? ""
-        : index < originals.length
-          ? ""
-          : "";
-    return {
-      _id: msg._id || originals[index]?._id || `draft-${index + 1}`,
-      role: msg.role === "user" ? "user" : "assistant",
-      type: "message",
-      createdAt: msg.createdAt || originals[index]?.createdAt || "",
-      content: msg.content ?? "",
-      sttContent: sttContent || (index < stt.length ? stt[index]?.content ?? "" : ""),
-      added: index >= originals.length,
-    };
-  });
-
-  // Prefer STT text for display when available on original-length rows
-  state.draft.forEach((row, index) => {
-    if (index < stt.length) {
-      row.sttContent = stt[index]?.content ?? "";
-    } else {
-      row.sttContent = "";
-    }
-  });
+  state.draft = finals.map((msg, index) => ({
+    _id: msg._id || originals[index]?._id || `draft-${index + 1}`,
+    role: msg.role === "user" ? "user" : "assistant",
+    type: "message",
+    createdAt: msg.createdAt || originals[index]?.createdAt || "",
+    content: msg.content ?? "",
+    originalContent: originals[index]?.content ?? "",
+    sttContent: stt[index]?.content ?? "",
+    added: index >= originals.length,
+  }));
 }
 
 function syncDraftFromDom() {
@@ -201,6 +222,11 @@ function syncDraftFromDom() {
 function renderTranscript() {
   els.transcriptGrid.innerHTML = state.draft
     .map((msg, index) => {
+      const originalContent = msg.originalContent?.trim()
+        ? msg.originalContent
+        : msg.added
+          ? "—"
+          : "—";
       const sttContent = msg.sttContent?.trim()
         ? msg.sttContent
         : msg.added
@@ -221,6 +247,10 @@ function renderTranscript() {
                 <span class="message-type">${msg.added ? "added turn" : "transcript"}</span>
                 <button type="button" class="delete-turn-btn" data-index="${index}" title="Delete this turn" ${state.draft.length <= 1 ? "disabled" : ""}>Delete</button>
               </div>
+            </div>
+            <div>
+              <div class="column-label">Original</div>
+              <div class="original-text">${escapeHtml(originalContent)}</div>
             </div>
             <div>
               <div class="column-label">Sarvam STT</div>
@@ -272,6 +302,7 @@ function renderTranscript() {
         type: "message",
         createdAt: "",
         content: "",
+        originalContent: "",
         sttContent: "",
         added: true,
       });
@@ -294,23 +325,31 @@ function updateMeta() {
   els.callMeta.textContent = parts.join(" · ");
 }
 
+function updateNavButtons() {
+  const call = state.currentCall;
+  els.prevCallBtn.disabled = !call?.prevId;
+  els.nextCallBtn.disabled = !call?.nextId;
+}
+
 async function selectCall(callId) {
   state.selectedId = callId;
   loadCalls();
 
-  const call = await fetchJSON(`/api/calls/${callId}`);
+  const call = await fetchJSON(apiUrl(`/api/calls/${callId}`));
   state.currentCall = call;
   buildDraft(call);
 
   els.emptyState.classList.add("hidden");
   els.callDetail.classList.remove("hidden");
-  els.callId.textContent = call.number != null ? `#${call.number} · ${call.id}` : call.id;
+  els.callId.textContent =
+    call.number != null ? `#${call.number} · ${call.id}` : call.id;
   els.player.src = call.public_url || "";
   els.player.load();
-  els.resetBtn.textContent = call.hasStt ? "Reset to Sarvam" : "Reset to default";
+  els.resetBtn.textContent = call.hasStt ? "Reset to Sarvam" : "Reset to original";
 
   renderTranscript();
   updateMeta();
+  updateNavButtons();
 }
 
 function collectFinalMessages() {
@@ -328,7 +367,7 @@ async function saveFinal() {
   if (!state.currentCall) return;
   try {
     const messages = collectFinalMessages();
-    const result = await fetchJSON(`/api/calls/${state.currentCall.id}/correct`, {
+    const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/correct`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages }),
@@ -339,7 +378,11 @@ async function saveFinal() {
     updateMeta();
     await loadStats();
     await loadCalls();
-    showToast("Final transcript saved");
+    showToast(
+      state.dataset === "indiamart"
+        ? "Saved to indiamart_corrected_transcripts.json"
+        : "Final transcript saved"
+    );
   } catch (err) {
     showToast(err.message);
   }
@@ -347,10 +390,13 @@ async function saveFinal() {
 
 async function resetFinal() {
   if (!state.currentCall) return;
-  const label = state.currentCall.hasStt ? "Sarvam transcript" : "default transcript";
+  const label = state.currentCall.hasStt ? "Sarvam transcript" : "original transcript";
   if (!confirm(`Reset final transcript to ${label} for this call?`)) return;
   try {
-    const result = await fetchJSON(`/api/calls/${state.currentCall.id}/correct`, { method: "DELETE" });
+    const result = await fetchJSON(
+      apiUrl(`/api/calls/${state.currentCall.id}/correct`),
+      { method: "DELETE" }
+    );
     state.currentCall.final_messages = result.final_messages;
     state.currentCall.edited = false;
     state.currentCall.updatedAt = null;
@@ -364,6 +410,29 @@ async function resetFinal() {
     showToast(err.message);
   }
 }
+
+async function switchDataset(dataset) {
+  if (dataset === state.dataset) return;
+  state.dataset = dataset;
+  state.page = 1;
+  state.search = "";
+  state.status = "all";
+  state.selectedId = null;
+  state.currentCall = null;
+  state.draft = [];
+  els.search.value = "";
+  els.statusFilter.value = "all";
+  els.emptyState.classList.remove("hidden");
+  els.callDetail.classList.add("hidden");
+  els.player.removeAttribute("src");
+  updateDatasetChrome();
+  await loadStats();
+  await loadCalls();
+}
+
+els.datasetTabs.querySelectorAll(".dataset-tab").forEach((btn) => {
+  btn.addEventListener("click", () => switchDataset(btn.dataset.dataset));
+});
 
 els.search.addEventListener("input", () => {
   clearTimeout(state.searchTimer);
@@ -380,6 +449,14 @@ els.statusFilter.addEventListener("change", () => {
   loadCalls();
 });
 
+els.prevCallBtn.addEventListener("click", () => {
+  if (state.currentCall?.prevId) selectCall(state.currentCall.prevId);
+});
+
+els.nextCallBtn.addEventListener("click", () => {
+  if (state.currentCall?.nextId) selectCall(state.currentCall.nextId);
+});
+
 els.saveBtn.addEventListener("click", saveFinal);
 els.resetBtn.addEventListener("click", resetFinal);
 
@@ -390,6 +467,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+updateDatasetChrome();
 loadStats();
 loadCalls();
 

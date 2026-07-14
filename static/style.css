@@ -21,7 +21,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .topbar {
@@ -109,10 +110,58 @@ body {
   font-size: 0.85rem;
 }
 
+.dataset-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.dataset-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 10px 10px 0 0;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.dataset-tab:hover {
+  color: var(--text);
+  background: #f8fafc;
+}
+
+.dataset-tab.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+  border-bottom-color: var(--bg);
+  font-weight: 600;
+}
+
+.tab-count {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: #eef2ff;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
+.dataset-tab.active .tab-count {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 340px 1fr;
-  min-height: calc(100vh - 76px);
+  height: calc(100vh - 140px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -121,6 +170,8 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .sidebar-controls {
@@ -144,7 +195,9 @@ body {
   margin: 0;
   padding: 0.5rem;
   overflow-y: auto;
-  flex: 1;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .call-item {
@@ -258,7 +311,8 @@ body {
 .workspace {
   padding: 1rem;
   overflow: auto;
-  max-height: calc(100vh - 120px);
+  min-height: 0;
+  height: 100%;
 }
 
 .sticky-top {
@@ -324,6 +378,8 @@ body {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .btn {
@@ -398,7 +454,7 @@ body {
 
 .message-card {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 0.75rem;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -493,6 +549,7 @@ body {
 }
 
 .stt-text,
+.original-text,
 .final-input {
   width: 100%;
   min-height: 72px;
@@ -501,6 +558,13 @@ body {
   font-size: 0.92rem;
   line-height: 1.45;
   font-family: inherit;
+}
+
+.original-text {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .stt-text {
@@ -535,6 +599,18 @@ body {
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .sidebar {
+    height: 50vh;
   }
 
   .message-card {

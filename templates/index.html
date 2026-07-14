@@ -10,10 +10,19 @@
   <header class="topbar">
     <div>
       <h1>Call Transcript Review</h1>
-      <p class="subtitle">First 1,000 calls · Sarvam STT and editable final transcript</p>
+      <p class="subtitle" id="subtitle">Select a dataset to review and edit transcripts</p>
     </div>
     <div class="stats" id="stats"></div>
   </header>
+
+  <nav class="dataset-tabs" id="datasetTabs">
+    <button type="button" class="dataset-tab active" data-dataset="muthoot">
+      Muthoot <span class="tab-count">{{ muthoot_total }}</span>
+    </button>
+    <button type="button" class="dataset-tab" data-dataset="indiamart">
+      IndiaMART <span class="tab-count">{{ indiamart_total }}</span>
+    </button>
+  </nav>
 
   <div class="progress-panel" id="progressPanel">
     <div class="progress-header">
@@ -52,6 +61,8 @@
               <p class="meta" id="callMeta"></p>
             </div>
             <div class="actions">
+              <button type="button" class="btn secondary" id="prevCallBtn">Previous</button>
+              <button type="button" class="btn secondary" id="nextCallBtn">Next</button>
               <button type="button" class="btn secondary" id="resetBtn">Reset to Sarvam</button>
               <button type="button" class="btn primary" id="saveBtn">Save final transcript</button>
             </div>

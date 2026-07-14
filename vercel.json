@@ -8,7 +8,7 @@
   ],
   "functions": {
     "api/index.py": {
-      "includeFiles": "{data_calls.csv,data_transcripts.json,sarvam_transcripts.json,templates/**,static/**}"
+      "includeFiles": "{data_calls.csv,data_transcripts.json,sarvam_transcripts.json,indiamart_63_transcripts.json,indiamart_final63_public_urls.csv,indiamart_sarvam_transcripts.json,templates/**,static/**}"
     }
   }
 }
