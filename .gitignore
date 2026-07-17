@@ -8,6 +8,7 @@ sarvam_transcripts.lock
 sarvam_transcripts.tmp
 indiamart_sarvam_transcripts.lock
 gemini_transcripts.json
+uploads/
 __pycache__/
 *.pyc
 .DS_Store

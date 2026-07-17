@@ -1,0 +1,1925 @@
+{
+  "6a4f7b506479275734546236": {
+    "number": 1,
+    "callLogId": "6a4f7b506479275734546236",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_f31b2e7d7eea",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593815.4546947",
+        "content": " Hello, आपको Nagpuri Grill Fancy 12 Inchi  की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_32855e939c11",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593818.7958634",
+        "content": "हां जी."
+      },
+      {
+        "n": 3,
+        "_id": "added-1784019314824-2",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "yes"
+      },
+      {
+        "n": 4,
+        "_id": "item_e292155642a1",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593819.408028",
+        "content": "आप जिस seller को call कर रहे थे वह अभी available नहीं थे, मैं IndiaMART Help Desk से बोल रही हूँ. कितना piece चाहिए?"
+      },
+      {
+        "n": 5,
+        "_id": "item_5cfb5f591c98",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593828.6820078",
+        "content": "Okay, material क्या चाहिए? Aluminium या Stainless Steel?"
+      },
+      {
+        "n": 6,
+        "_id": "item_9dde8915a1d2",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593837.1667368",
+        "content": "Stainless steel."
+      },
+      {
+        "n": 7,
+        "_id": "item_aa3bade5c75b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593837.1837258",
+        "content": "ठीक है, Stainless Steel चाहिए. ये reselling के लिए है, business use के लिए, या home use के लिए?"
+      },
+      {
+        "n": 8,
+        "_id": "item_a311e37879e7",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593847.317021",
+        "content": "Business Business use के लिए."
+      },
+      {
+        "n": 9,
+        "_id": "item_8624cd97cfa0",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593847.3354406",
+        "content": "ठीक है, requirement captured. Seller details will be shared on WhatsApp and SMS or email."
+      },
+      {
+        "n": 10,
+        "_id": "item_84c22f1bd218",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593858.2172592",
+        "content": "Ok. Thank you."
+      },
+      {
+        "n": 11,
+        "_id": "item_8a04942a3b93",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593862.4291496",
+        "content": "इंडियामार्ट को कॉल करने के लिए धन्यवाद, आपका दिन शुभ हो।"
+      }
+    ],
+    "updatedAt": "2026-07-14T08:56:16.989136+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7b506479275734546236/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7b506479275734546236/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=894b0fbd9abc3d847dae84336446b80be93960856cffc5a185aa80b93aafa5fe1d7522aa994e388d8a1ea2e99753d429d6eface95013f7383e44db4e8a7f162974a0413f3c36ca3ab33a025573892e0e2e1d66e18f5735eeb5a80200308a73f061f97aa3343307bc32a92ee1c44fccce870bbd8758a2b50ce6fbb9fe7eab44f8c0d01244fee283812a2b47af82a0c6962fd79048871555fd199af98276a1e6925f7f071b0ebed2e9f666ed04f3bb9cd8c32c226e4c001ac2a340aade2cadfc85e6f9f049a589bbaa19541318a0636d19c781f9c9195ec1c2377c7e22cf0f20deb10a0240516f801df3c4448a6a002b0842a360979551e1ade2ad12ff0720500c"
+  },
+  "6a4f7b7515c69c1dca7978a1": {
+    "number": 2,
+    "callLogId": "6a4f7b7515c69c1dca7978a1",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_c744630e10c4",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593864.0417113",
+        "content": "हेलो, हमारी बात हो रही थी। आपको Belden Knx Cable की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_c182f647abc1",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593866.3659801",
+        "content": "हां."
+      },
+      {
+        "n": 3,
+        "_id": "added-1784019399261-2",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "",
+        "content": "हां है."
+      },
+      {
+        "n": 4,
+        "_id": "item_587d8ac3eedc",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593867.3950372",
+        "content": "आप"
+      },
+      {
+        "n": 5,
+        "_id": "item_af23be6660e5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593869.391579",
+        "content": "आपको कितने meter चाहिए?"
+      },
+      {
+        "n": 6,
+        "_id": "item_94ec1f02ae93",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593875.8627799",
+        "content": "One eight one K."
+      },
+      {
+        "n": 7,
+        "_id": "item_fe97f6ee5ad5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593876.1872349",
+        "content": "माफ़ कीजिए, मैं ठीक से समझ नहीं पाई, एक बार फिर से बता दीजिए."
+      },
+      {
+        "n": 8,
+        "_id": "item_6805a2e0f9f1",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593885.1717875",
+        "content": "एक हज़ार."
+      },
+      {
+        "n": 9,
+        "_id": "item_907deac29fa8",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593885.203169",
+        "content": "ठीक है, one thousand meter. अब cable type बताइए?"
+      },
+      {
+        "n": 10,
+        "_id": "item_1e4dd310b045",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593908.6748567",
+        "content": "माफ़ कीजिये आपकी आवाज़ क्लियर नहीं थी कृपया दोबारा ज़रा ज़ोर से बताईये"
+      }
+    ],
+    "updatedAt": "2026-07-14T08:57:42.127309+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7b7515c69c1dca7978a1/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7b7515c69c1dca7978a1/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=3689711ab177cbd90ee431e67120c5e4946ac75bd23781b5b976f849d142d7db6a05f2b9347113c21843b10cd10f9e3f3779c9af395e908ea65991dd37206709d395966ea4e6fdcb41d07ae24067a29680341dd284bfc539f7c231cc629a3124289b52b09d7b57cc1ef57d17e2657170684bb858cf72b948974e63b2566c432efe50fb77e88118ea19e9ca715fa795bcb5e21cafcfbfa803c9869423b4357564c0554778745bbe114d00658207cd2ab9964b81774bffb03b54d440d184aebd55b94dd4281bad0c3f8d3e1ece4894fbcf8136c197999643e1b5220ec280d39993727a7cc4d89df17152f946b20339bcce7275dac037bc44a817b5925d740ae431"
+  },
+  "6a4f7b78992614392514bae8": {
+    "number": 3,
+    "callLogId": "6a4f7b78992614392514bae8",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_ae86e1b5f5cb",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593857.081626",
+        "content": "Hello, आपको ASHA 25 Bar Oxygen Acetylene Gas Regulators, For Industrial  की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_9cde6417d7fa",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593860.8431852",
+        "content": "Yes yes yes."
+      },
+      {
+        "n": 3,
+        "_id": "item_6722d84b81c4",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593861.562252",
+        "content": "आप जिस seller को call कर रहे थे वह अभी available नहीं थे, मैं IndiaMART Help Desk से बोल रही हूँ. आपको कितने चाहिए?"
+      },
+      {
+        "n": 4,
+        "_id": "added-1784019541564-3",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "1 number चाहिए"
+      },
+      {
+        "n": 5,
+        "_id": "item_6f76ceddbe60",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593886.9940403",
+        "content": "Hello."
+      },
+      {
+        "n": 6,
+        "_id": "item_c6e2343ed335",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593887.0397775",
+        "content": "हाँ, मैं सुन पा रही हूँ. आपको कितने चाहिए?"
+      },
+      {
+        "n": 7,
+        "_id": "item_5a4f004e9f6a",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593894.893969",
+        "content": "One number चाहिए, one number"
+      },
+      {
+        "n": 8,
+        "_id": "item_1a6313fc83e5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593894.917291",
+        "content": "ठीक है, one piece चाहिए. अब Product Type बताइए."
+      },
+      {
+        "n": 9,
+        "_id": "item_51c81e989c29",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593903.524729",
+        "content": "Product."
+      },
+      {
+        "n": 10,
+        "_id": "item_bec03992a3f6",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593903.5462253",
+        "content": "माफ़ कीजिए, मैं ठीक"
+      },
+      {
+        "n": 11,
+        "_id": "item_308d400ae601",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593906.8463435",
+        "content": "Regulator है regulator."
+      },
+      {
+        "n": 12,
+        "_id": "item_0107feffad10",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593906.870334",
+        "content": "कोई बात नहीं, ये detail आप seller से directly discuss कर लीजिएगा. अब Product Type बताइए: Modular, Non-modular, या Roma Fitting?"
+      }
+    ],
+    "updatedAt": "2026-07-14T08:59:55.660158+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7b78992614392514bae8/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7b78992614392514bae8/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=2dff247b57a7645dee0799052f22dc72899ce36cabe00a0399658eb7c4183599bf22b5cbfee075eb4b0f38a4cedab15482282224c2167c3dcd54b9e9f4ed123c7ea4232f2231472a664a611575a87e3d67630e6f8fec1e48f074510cf8d5c9fe7a18e63f86fc2e4062971d5a598257ca06c7ec524dfa73bcb2bf9bc2e7ad3af7a450d8b0ce7c850b58dce6c49186d4f6b2dd8c64d71a7fda4175d3406791e728ecf79337de8015627665425e579a00f207f21644243d1cabba6f7b6a2419a1c597b28cc4470b06b020d3708ea01fb9b1a05bd3b48f5e77e07d4233c5b2d68a6b41f3e41dcad459cf0684776f9ae1bc34547c62d92b031e63ed95d00089f39edd"
+  },
+  "6a4f7bae15c69c1dca79790b": {
+    "number": 4,
+    "callLogId": "6a4f7bae15c69c1dca79790b",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_6c120319c555",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593908.7370627",
+        "content": "Hello, आपको Nabati Siip Richess Chocolate Wafers  की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "added-1784019728049-1",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_5ca4e9c73d0b",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593912.7113912",
+        "content": "जी ma'am."
+      },
+      {
+        "n": 4,
+        "_id": "item_85f266feef62",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593913.3752155",
+        "content": "आप जिस seller"
+      },
+      {
+        "n": 5,
+        "_id": "item_bdfc5ab012d7",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593916.9648557",
+        "content": "Hello."
+      },
+      {
+        "n": 6,
+        "_id": "item_014f216e87ba",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593916.9874275",
+        "content": "जी हाँ, मैं सुन रही हूँ। आपको कितना quantity चाहिए?"
+      },
+      {
+        "n": 7,
+        "_id": "item_16ce0c3cd8b5",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593931.005523",
+        "content": "Ma'am पहले तो यह बताओ आप का मतलब जो यह है मतलब branch है कहां पर है ma'am?"
+      },
+      {
+        "n": 8,
+        "_id": "item_cd3ebae4516b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593931.026824",
+        "content": "यह IndiaMART Help Desk है, मैं suitable sellers से connect कराने में मदद कर रही हूँ। कितना quantity चाहिए?"
+      },
+      {
+        "n": 9,
+        "_id": "item_3a7464fe7e60",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593943.572581",
+        "content": "Ma'am Ma'am दो तीन box लेने होते."
+      },
+      {
+        "n": 10,
+        "_id": "item_c25e381f4c20",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593943.595481",
+        "content": "समझ गई, two three box चाहिए. "
+      },
+      {
+        "n": 11,
+        "_id": "item_5c46f6c4790d",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593951.2055051",
+        "content": "Yes, ma'am. Yes, ma'am."
+      },
+      {
+        "n": 12,
+        "_id": "item_03422ff60f24",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593951.224122",
+        "content": "अच्छा, wafer type कौन सा चाहिए? Wafer Biscuits या Wafer Roll?"
+      },
+      {
+        "n": 13,
+        "_id": "item_a79a0a340abc",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593960.8917224",
+        "content": "जी ma'am?"
+      },
+      {
+        "n": 14,
+        "_id": "item_3f51fea9fdf5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593960.9129922",
+        "content": "Wafer Biscuits या Wafer Roll, इनमें से"
+      },
+      {
+        "n": 15,
+        "_id": "item_a309e06896cd",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593965.1118417",
+        "content": "Ma'am Wafers roll चाहिए roll."
+      },
+      {
+        "n": 16,
+        "_id": "added-1784019805769-15",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "roll ma'am roll. चाहिए"
+      },
+      {
+        "n": 17,
+        "_id": "item_7ae93facde39",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593969.552568",
+        "content": "इंडियामार्ट को कॉल करने के लिए धन्यवाद, आपका दिन शुभ हो।"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:12:37.581585+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7bae15c69c1dca79790b/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7bae15c69c1dca79790b/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=1a10b3dd55c3307eee3e4e60d6a8acc9af4b3ee1de52cf9ced880ea0108d79c7ce1ee7ab56f9e93440f69cc40b3ceeec0d8694f0e22f94a86e781f450e0cdcca8f813aaca8c9c8f3faa3bee05c435cf3766cc44ec4ffeb3b3e31c330e11df66cdbc0e37a4cc6f63b18d765bc91c3a3abc748679b87334aba3390b8bb112f2767c0998f2cab746b9724e1da9118205e019a520ef5261b04fb30288e26e659892dd58d48f1f2f803c4c1b6eac141f8069d9b6f87a304746577ffe483e7c566106c99cd322f491bdb3f8d791afab2f94f025cabee3c9d99fe2847e3c787f492adbafe912224de337499a0b2fc71dc8cde7f4837e3358a125f52aa3199190dc898fe"
+  },
+  "6a4f7bc2fffd322d95f1be11": {
+    "number": 5,
+    "callLogId": "6a4f7bc2fffd322d95f1be11",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_35c1cb7bd48d",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593927.7490745",
+        "content": "Hello, आपको Lactogen  की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_6c61c9c93f3a",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593933.07367",
+        "content": " Hello Hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_1ee8b190f2ff",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593934.994908",
+        "content": "हाँ, मैं सुन रही हूँ। Lactogen चाहिए ना?"
+      },
+      {
+        "n": 4,
+        "_id": "item_9afcaec3754b",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593938.7681608",
+        "content": "हाँ"
+      },
+      {
+        "n": 5,
+        "_id": "item_0aec27e5fd2b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593938.80397",
+        "content": "हाँ, बताइए। Lactogen चाहिए ना?"
+      },
+      {
+        "n": 6,
+        "_id": "item_13b373ddfab5",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593945.5944123",
+        "content": "कितने घर के हैं?"
+      },
+      {
+        "n": 7,
+        "_id": "item_c9ca8f66d006",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593945.611766",
+        "content": "कितने घर के पैक चाहिए?"
+      },
+      {
+        "n": 8,
+        "_id": "item_e67e50f1431b",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593949.3927538",
+        "content": "चार piece चाहिए था"
+      },
+      {
+        "n": 9,
+        "_id": "item_ae9f3f31d4a7",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593949.4259882",
+        "content": "ठीक.hai"
+      },
+      {
+        "n": 10,
+        "_id": "item_2b7dedb99091",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593951.8961153",
+        "content": "चार piece चाहिए था."
+      },
+      {
+        "n": 11,
+        "_id": "item_e704559f82f2",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593951.9337864",
+        "content": "ठीक है, Stage बताइए।"
+      },
+      {
+        "n": 12,
+        "_id": "item_913f1af728d1",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593959.1360261",
+        "content": "क्या?"
+      },
+      {
+        "n": 13,
+        "_id": "item_6df18106eccd",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593959.1590567",
+        "content": "Stage one, two, three, या four?"
+      },
+      {
+        "n": 14,
+        "_id": "item_e3bb950c31eb",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593967.1921132",
+        "content": "यह Lactogen Pro One"
+      },
+      {
+        "n": 15,
+        "_id": "item_17524b202a90",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593967.2154772",
+        "content": "अच्छा,"
+      },
+      {
+        "n": 16,
+        "_id": "item_bb2d66c97bac",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593970.0918512",
+        "content": "Pro one चाहिए"
+      },
+      {
+        "n": 17,
+        "_id": "item_816620c3edf7",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593970.1188943",
+        "content": "माफ़ कीजिए, मैं ठीक से समझ नहीं पाई, एक बार फिर से बता दीजिए."
+      },
+      {
+        "n": 18,
+        "_id": "item_1ff2474ea705",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593978.0929747",
+        "content": " Pro one चाहिए"
+      },
+      {
+        "n": 19,
+        "_id": "item_e8e3a4ed20c5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593978.119184",
+        "content": "ठीक है, Pro one चाहिए। Weight बताइए।"
+      },
+      {
+        "n": 20,
+        "_id": "item_3426924a114d",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593987.1885169",
+        "content": "weight"
+      },
+      {
+        "n": 21,
+        "_id": "item_87b59c027ca1",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593988.8905075",
+        "content": "Four hundred gram"
+      },
+      {
+        "n": 22,
+        "_id": "item_aafa1abd792e",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783593988.9125397",
+        "content": "ठीक है, four hundred gram। seller details मैं वाट्स ऐप और SMS या email पर भेज दूँगी।"
+      },
+      {
+        "n": 23,
+        "_id": "item_28a8d1ff51ad",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783593999.5922124",
+        "content": "भेजो भेजो, जल्दी भेज दो."
+      },
+      {
+        "n": 24,
+        "_id": "item_ee2c0d27aa7e",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594003.8035443",
+        "content": "इंडियामार्ट को कॉल करने के लिए धन्यवाद, आपका दिन शुभ हो।"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:14:55.821957+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7bc2fffd322d95f1be11/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7bc2fffd322d95f1be11/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=4e7037808605da2c46814994952072ffa78eb607f7d08c04d999b4411d74aa21744eacb29b035186e028c68c9815c4e3efb95e9f7a8b654ce50971d673dacc6aa56bbc40f86580adfd8c8dfb3f21fcab82eedaf4296d600bb8e80fd9df208c09d9e4cc83f583896505d4ed527cb01c555738f23ac3f2409fbc10f8fc66be74921e05834095aa4581d23f8af687a9a904225d245fca6b520dbee49fa65824e9c56e63c81e4ea3ade40361efcd42947f1499b606ce27e64f06ad033aacabfac844c6714c9a0afc5fc5148ffbafade730cd4ef58dd7996435b49f1767a8afeb0afe223cea465585d84dfb3501200c5301afcda541d82eb2616721faea2ac3b82fa4"
+  },
+  "6a4f7c12647927573454639d": {
+    "number": 6,
+    "callLogId": "6a4f7c12647927573454639d",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_355ae983ff0e",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594008.31555",
+        "content": "हेलो, आपको water jugs की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_49b9e43559e2",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594017.1490443",
+        "content": "Hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_83327da9fb22",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594017.77135",
+        "content": "जी हाँ, मैं सुन पा रही हूँ। बताइए material क्या चाहिए?"
+      },
+      {
+        "n": 4,
+        "_id": "item_a3b8c81fd60a",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594047.6524262",
+        "content": "material नहीं चाहिए मुझे संसार वासनालय जो utensils दुकान है GT Road में अह शिवपुर हावड़ा के वहां हमें कुछ सामान ताँबा पीतल कांस सारे इसे भी हमको sell करना है पुराना है उसको sell करके cash लेना है आप उसका number मुझे दे सकती हो?"
+      },
+      {
+        "n": 5,
+        "_id": "item_bd4b3eb156f5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594047.6704173",
+        "content": "मैं इस तरह के पुराने सामान का number नहीं दे सकती कुछ और चाहिए"
+      },
+      {
+        "n": 6,
+        "_id": "item_34fa2bf344e7",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594062.7000844",
+        "content": "पुराने सामान नहीं चाहिए बिक्री करने के लिए संसार वासनालय दुकान का नंबर दो।"
+      },
+      {
+        "n": 7,
+        "_id": "item_7ddb6d3ec56a",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594062.7190676",
+        "content": "मैं ऐसा number share नहीं कर सकती कुछ और help चाहिए"
+      },
+      {
+        "n": 8,
+        "_id": "item_e35932fcc6ce",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594071.454104",
+        "content": "नहीं जी तो फिर क्या help करोगी"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:30:50.380976+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7c12647927573454639d/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7c12647927573454639d/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=66531c7bf6fc442ac0bb4a31521f6d9d1f2cbcac7704f2db6d5267b3910e914f70fd2eb0cd2350809066b59affea8ae74f2f9fdb8c115c5553fdee262cb1621a4e727046ef6b141f4277cafaf42cde7f70f92eaddfd4409c39e8750bf6cbc86cce6edc8e6bc293a78bf731fb29a20dfe7590eb04b8696cf1c61d11f23694788f36e841390a802bdf91f0a0bcbd78f8d0bb8a0b7a065d712c1f73889f941f64451799094e24effc9f49d6756518b03dd5f213c7c263304e92771b7c07122b90f08a913ba348506bb1362d77fbdae934fc6c06c8a227cb7d52ff28c71996722a1381ef0e3def2685e28a85fbb9fc348a58aaa1361b51ae55f0889a5ea9a429ace0"
+  },
+  "6a4f7c9062ad462ab471e84f": {
+    "number": 7,
+    "callLogId": "6a4f7c9062ad462ab471e84f",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_31b43f358164",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594136.4377763",
+        "content": "हेलो, आपको VNG सैलोन प्रोफेशनल मैट्रिक्स हेयर ड्रायर की रिक्वायरमेंट है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_f3ffb907ffbb",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594146.919716",
+        "content": "Yes Ma'am Hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_9d5091802106",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594147.8281143",
+        "content": "जी हां, मैं सुन पा रही हूं। बिल्कुल बताइए। आपको कितने पीस चाहिए?"
+      },
+      {
+        "n": 4,
+        "_id": "item_964047e86bb1",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594158.9212525",
+        "content": "Hello"
+      },
+      {
+        "n": 5,
+        "_id": "item_7e395e95f2a3",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594158.941432",
+        "content": "जी मैं सुन रही हूँ आपको कितने piece चाहिए"
+      },
+      {
+        "n": 6,
+        "_id": "item_d3d6e314ac31",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594165.21912",
+        "content": "Hello\n"
+      },
+      {
+        "n": 7,
+        "_id": "item_a0c254b9a5fd",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594165.2387176",
+        "content": "जी, मैं सुन रही हूँ। आपको कितने piece चाहिए?"
+      },
+      {
+        "n": 8,
+        "_id": "item_e316edc888f2",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594183.7188919",
+        "content": "Hello"
+      },
+      {
+        "n": 9,
+        "_id": "added-1784021575738-8",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "Hello"
+      },
+      {
+        "n": 10,
+        "_id": "item_3507381c5836",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594183.748828",
+        "content": "जी, मैं सुन रही हूँ. आपको कितने Piece चाहिए?\n"
+      },
+      {
+        "n": 11,
+        "_id": "item_7d40ed8a783d",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594191.3694656",
+        "content": "Two pieces ma'am"
+      },
+      {
+        "n": 12,
+        "_id": "item_e7a20967bc21",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594191.3912876",
+        "content": "ठीक है, 2 piece चाहिए। ब्रांड कौन सा चाहिए? Nova या Philips?"
+      },
+      {
+        "n": 13,
+        "_id": "item_e0d07026e47e",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594200.6698687",
+        "content": "जी हां जी ma'am.\n"
+      },
+      {
+        "n": 14,
+        "_id": "item_c8a52db9d84f",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594200.6906657",
+        "content": "ठीक है, brand बताइए, Nova या Philips?"
+      },
+      {
+        "n": 15,
+        "_id": "item_be6fb94f8638",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594208.1169932",
+        "content": "V n g\n"
+      },
+      {
+        "n": 16,
+        "_id": "item_aafa0c0572af",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594208.1372628",
+        "content": "माफ़ कीजिए, मैं ठीक से समझ नहीं पाई। 1 बार फिर से बताइए।"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:33:50.596098+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7c9062ad462ab471e84f/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7c9062ad462ab471e84f/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=b60574293ef070ba658bdfc65594e0fa41cf9e4c84a16486edc64943a2e656e9e8d55b2ba12ffe5afc12b463eec4f26a7efcefa72ea29d99e358d26c5ce4629a33f815d2e5d968963ebb514f6d11d76e082910f6119eba8c8a57c91a09438d69b89faadee54536ee719472da4d377ded01ffc8012404f66af1815d6d4b9ef704210ceef0524443802fb16f476f64d0836dbdfe7e015c3d8bf2a1538bdffd45a868d1916cbef028370d9f8eeaccc860d7079dacc744f73624fb70ce0e6f270e3e234fce7fc5401b81f021ee4ca1d06d67899ab2bc070fcb30007a4b49506a7d1af85d8fe847039bb8e1b0e93f55839c02b0ecded3a1805275632ac97ebfdb8b72"
+  },
+  "6a4f7d3510b9f353c5f20154": {
+    "number": 8,
+    "callLogId": "6a4f7d3510b9f353c5f20154",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_648a84e90bb4",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594299.9097557",
+        "content": "आपको Potassium Nitrate Powder, सोरा की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_dcfe4e81c0f1",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594322.1591253",
+        "content": "माफ़ कीजिए, आपकी आवाज़ क्लियर नहीं थी। कृपया दोबारा, ज़रा ज़ोर से बताइए।"
+      },
+      {
+        "n": 3,
+        "_id": "item_2460dc30e8e1",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594374.425689",
+        "content": "माफ़ कीजिए आपकी आवाज़ clear नहीं थी कृपया दोबारा ज़रा ज़ोर से बताइए"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:34:59.263248+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7d3510b9f353c5f20154/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7d3510b9f353c5f20154/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=6359f2a303d04c07b4a55e031b5c5618a3a8c54530fcdbd7261cecc7ec2016d091c5af55cdc0bf6b5ef661b737ae2816570d7d3d2974c7c4d16291e5b01ef135d37bc572c5cde4c8d23968189968f7aff44fadf9663082c4f61cc57233c4a4c4575422081ac574c9837192b45659eb28d557418797ee2523852953aeeefb65782430c7a745c4e7dee406721f21337946ceb3bdc6e861175d97c1a00ce9280bd237256e216022061629e2ac65992accf2ff84533822a5803aff1336b0bf78ea523dcc4ce67e32a5902ae0c103e20c84bbbfa301ab219b6bf20a56a4d98ac85075f4b3b82b82b231b9b584e83643ae78bdf860d6f34987fbe13435ab7e1468e4c2"
+  },
+  "6a4f7d7b62ad462ab471e9c5": {
+    "number": 9,
+    "callLogId": "6a4f7d7b62ad462ab471e9c5",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_e0032ab21907",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594368.8312042",
+        "content": "हेलो, आपको bathroom plastic bucket की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_77c7c7e90e55",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594373.424588",
+        "content": "Hello Hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_b73567ad7293",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594374.223483",
+        "content": " जी हाँ, मैं सुन पा रही हूँ, बताइए, quantity कितनी चाहिए?\n"
+      },
+      {
+        "n": 4,
+        "_id": "item_8f72311cd212",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594382.552356",
+        "content": "Hello. Two hundred piece.\n"
+      },
+      {
+        "n": 5,
+        "_id": "item_b199330ad351",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594382.579734",
+        "content": " ठीक है, two hundred piece. 20 L चाहिए या 10 L?\n"
+      },
+      {
+        "n": 6,
+        "_id": "item_b5792b683ec5",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594388.8733666",
+        "content": "कितना price है?\n"
+      },
+      {
+        "n": 7,
+        "_id": "item_34ea48d1fa5c",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594388.8920078",
+        "content": " price seller\n"
+      },
+      {
+        "n": 8,
+        "_id": "item_af3666456b6c",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594391.8219075",
+        "content": "LLL size"
+      },
+      {
+        "n": 9,
+        "_id": "item_67d339a43816",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594391.8377192",
+        "content": " price seller\n"
+      },
+      {
+        "n": 10,
+        "_id": "item_7d0f59efcd44",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594399.6448538",
+        "content": " 20 L चाहिए या 10 L?\n"
+      },
+      {
+        "n": 11,
+        "_id": "item_6caec763d5bc",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594407.0706265",
+        "content": "20 L या वो X है"
+      },
+      {
+        "n": 12,
+        "_id": "item_f442da694461",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594407.0897026",
+        "content": " With Lid चाहिए या Without Lid?\n"
+      },
+      {
+        "n": 13,
+        "_id": "item_a22beb5c9e50",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594414.7709255",
+        "content": "Without lid.\n"
+      },
+      {
+        "n": 14,
+        "_id": "item_74c1c016938d",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594414.79764",
+        "content": " ठीक है, Without Lid. seller details वाट्स ऐप और SMS या email पर भेज दूँगी.\n"
+      },
+      {
+        "n": 15,
+        "_id": "item_215f47e1902f",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594428.4975824",
+        "content": "How much this price one piece stable?"
+      },
+      {
+        "n": 16,
+        "_id": "item_2e01757b725b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594436.8573823",
+        "content": "सेलर डिटेल्स WhatsApp एंड SMS या email पर भेज दूंगी।"
+      },
+      {
+        "n": 17,
+        "_id": "item_3fbabd5e7f28",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594441.409033",
+        "content": "Okay"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:41:27.366987+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7d7b62ad462ab471e9c5/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7d7b62ad462ab471e9c5/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=5ccb9c86ec2fb434410a8aa05e4d107fd57ffba0a54b92308bd40a5b5a7bf023e8aea61a6c60f04ff6ccac9bcf3f7fe235dba03f40037d523e65e43572c0a32f421a3ea7f78583357659293bc1ad22d9af3edcca0f99a90a7da89aed9aca3164d96473cda53ad4815a38ade84c75c9006cdca908a7acefd745cd276bc87d0d4f9079ffd168fbe1b86db6b3c1f3db89b36b637736041d62b9a141189071c6fc8cab4c4482f7552ad7b8ba063537ed8fb55436c064e56fbeeb8e1130df068cb8e2fc908bddbb8791fff7ad9405edc53b7884beec1e37b5e0b6a19a2b24cd33708596d5e0cfdc9cfaa0a3f77a7518e536ffcdded05e3bafb2bf2e4bd21e0e5ece69"
+  },
+  "6a4f7e01adfe183686dbc349": {
+    "number": 10,
+    "callLogId": "6a4f7e01adfe183686dbc349",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_4831b688c63b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594510.0878026",
+        "content": "हेलो, आपको RC bumper car, big size viral toy toddler, remote control car toys for kids with music and LED lights की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_5f54279c6bc6",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594518.1122847",
+        "content": "हाँ"
+      },
+      {
+        "n": 3,
+        "_id": "item_e38683f00b23",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594518.8057804",
+        "content": "Yes"
+      },
+      {
+        "n": 4,
+        "_id": "item_1e26c1580672",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594533.7083685",
+        "content": "आप जिस seller को call कर रहे थे, वह अभी available नहीं थे। मैं India Mart help desk से बोल रही हूँ। कितना piece चाहिए?"
+      },
+      {
+        "n": 5,
+        "_id": "item_1df7bc0fb03a",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594533.7355773",
+        "content": "500"
+      },
+      {
+        "n": 6,
+        "_id": "item_1f974d3ca80f",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594543.1088011",
+        "content": "अच्छा ₹500 अब product type बताइए।"
+      },
+      {
+        "n": 7,
+        "_id": "item_8cbeaa481963",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594543.1277866",
+        "content": "Bumper car।"
+      },
+      {
+        "n": 8,
+        "_id": "item_03acc6c9c875",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594583.8473752",
+        "content": "ठीक है, bumper car चाहिए। special features में क्या चाहिए?"
+      },
+      {
+        "n": 9,
+        "_id": "added-1784022174311-8",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "",
+        "content": "maaf kijiye"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:43:02.473663+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7e01adfe183686dbc349/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7e01adfe183686dbc349/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=9240b80b1c08a3a19d7f54878e20a45cd4d5fcf34ed46b2312821599ca141bc4d68250c061c469c5ac459005ab907b07fdfd388016a3ff62ced984d442b49113af205cefa16d5ed667f49e9cfaf06a916709400d5732fe99aad747533cc4d7471aa43877e2de1129940bc7c6057734b0bb4e11a7355d1d7b57da6ab4e183d264f78c6db8a692d8174af69c0f50474e9fcc848c7664f406549e75ce970e679da5bc905d306778e0440e095fe6665c5458dfce1f6c6b131f19bc7ee0d1ca286a816c6ba1e7e2f4ad272f18833cb7645d94478d35dae234efbdb682742f00d167751c866281ef5c5b6c27c33448152be8d7d8cd4f68e3e8b12398dac681923a637b"
+  },
+  "6a4f7effadfe183686dbc4bb": {
+    "number": 12,
+    "callLogId": "6a4f7effadfe183686dbc4bb",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_225d443d69f2",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594765.7410734",
+        "content": "हमारी बात हो रही थी आपको stylish photo frame की requirement है ना"
+      },
+      {
+        "n": 2,
+        "_id": "item_518dc71953fc",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594768.2793837",
+        "content": "हाँ"
+      },
+      {
+        "n": 3,
+        "_id": "item_123cee3d358d",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594768.9476168",
+        "content": "आप जिस seller को call कर रहे थे वह अभी available नहीं थे, मैं IndiaMART Help Desk से बोल रही हूँ। कितना piece चाहिए?\n"
+      },
+      {
+        "n": 4,
+        "_id": "item_d9fb71d038d9",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594781.8438354",
+        "content": "Fifteen hundred.\n"
+      },
+      {
+        "n": 5,
+        "_id": "item_4d3bcf48e665",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594781.9560747",
+        "content": "अच्छा, fifteen hundred piece चाहिए। अब साइज़ क्या चाहिए?\n"
+      },
+      {
+        "n": 6,
+        "_id": "item_724d18300365",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594790.730805",
+        "content": "A four size"
+      },
+      {
+        "n": 7,
+        "_id": "item_dfe0741d5271",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594790.748329",
+        "content": "माफ़ कीजिए, मैं ठीक से समझ नहीं पाई, एक बार फिर से बता दीजिए।\n"
+      },
+      {
+        "n": 8,
+        "_id": "item_72794777b6f7",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783594799.7339034",
+        "content": "A4 size"
+      },
+      {
+        "n": 9,
+        "_id": "item_8e2129f8525b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594799.7519598",
+        "content": "कोई बात नहीं, ये detail आप seller से directly discuss कर लीजिएगा। अब frame material बताइए।\n"
+      },
+      {
+        "n": 10,
+        "_id": "item_80d01f195702",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783594830.0955267",
+        "content": "माफ़ कीजिये आपकी आवाज़ क्लियर नहीं थी कृपया दोबारा ज़रा ज़ोर से बताईये\n"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:48:39.737262+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7effadfe183686dbc4bb/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f7effadfe183686dbc4bb/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=37db4d44744bae80f87a1a373096d58db68da12fad95ca8aa94b0c69be9f0477e794fdf2a6c2f615365823a101ff9b7dc5d770c27b8b2dc8a376883f44b831b9dc967d068cbfe0fb2c878e30e1cce7b083afdf16ab2789f83fa440858d5a18546515b144154f6f0d341b736970a2af5387c2f1504f5fbd81b4df9693ee214b0de2813f748e011f26d1eac6f1d8fd7b7db93143240f0f4a17daa8d17a7c8197cf4e82fd48a34b417e4624b0bc79fddb1486c54e3394a239de31e82f6b3779c3715c02dd73d16426ad661c3a27af514514c08b0c433089568c2ff97f3180eda0b99e670169c8208deaa030146cd214d0fa599cef79b45f42695a6a934aa7dc4b1b"
+  },
+  "6a4f8112992614392514c35c": {
+    "number": 13,
+    "callLogId": "6a4f8112992614392514c35c",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_060095031715",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595295.8428931",
+        "content": "हमारी बात हो रही थी आपको white food container की requirement है ना"
+      },
+      {
+        "n": 2,
+        "_id": "item_f8c84a13167c",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595299.7876625",
+        "content": "Yes."
+      },
+      {
+        "n": 3,
+        "_id": "item_849379c34eff",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595300.6890845",
+        "content": "आप जिस seller को call कर रहे थे वह अभी available नहीं थे मैं India Mart help desk से बोल रही हूँ कितना चाहिए"
+      },
+      {
+        "n": 4,
+        "_id": "item_931c4074e309",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595316.0943427",
+        "content": "1000 piece like 1000 piece का box करके। 10 box।"
+      },
+      {
+        "n": 5,
+        "_id": "item_cc8aaa864879",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595317.7285478",
+        "content": "ठीक है, ten box समझ गई। 500 ml चाहिए या 1000 ml?\n"
+      },
+      {
+        "n": 6,
+        "_id": "item_5a662aebec2c",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595317.7555957",
+        "content": "500 ml, 300 ml।"
+      },
+      {
+        "n": 7,
+        "_id": "item_d87259466a25",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595329.029633",
+        "content": "500 mL समझ गया। मटेरियल क्या चाहिए? प्लास्टिक या PP?"
+      },
+      {
+        "n": 8,
+        "_id": "item_f724eddc79eb",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595329.2500424",
+        "content": "Plastic."
+      },
+      {
+        "n": 9,
+        "_id": "item_afe715087dba",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595338.4480464",
+        "content": "ठीक है, plastic। आपका requirement captured है। seller details WhatsApp और SMS या email पर share होंगी।"
+      },
+      {
+        "n": 10,
+        "_id": "item_4320dca671fa",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595338.495304",
+        "content": "Okay"
+      },
+      {
+        "n": 11,
+        "_id": "item_99100f433ff9",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595350.8710194",
+        "content": "IndiaMART को call करने के लिए धन्यवाद। आपका दिन शुभ हो।"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:49:59.348558+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f8112992614392514c35c/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f8112992614392514c35c/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=2cf4479997c277289787394c8cd73416f4585ef9dce1328debd93010cee43b2226d6eb8ff1e2b09f77e604f846744279de3332ad082fdef0470144f6da50cd517e08f92b435703ae780ff5524fc815c61deb4cf7def642318da4b99071b2607f48bd01509d98b51b782206128acb20900e32f7fdb5cbf6c8ff15522b2fff87320e2bca8b1c0aa761fc077390c03fc9cd583bda20a49f627bfd1470c79335a2a33ffc2e31f2db629fdff20f4733efad45c73f663d746621b400bbf534b537c3c743b7f9da3e8b766adb42657edfe5ad8b1c11af3487fe53eb314f5f701a6e65366057dec9f0632d97e7e2a1e62598cedf97775729d2ef7ea68959215b74c4182b"
+  },
+  "6a4f8119992614392514c36a": {
+    "number": 14,
+    "callLogId": "6a4f8119992614392514c36a",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_48c1222cbe87",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595306.9802625",
+        "content": "हमारी बात हो रही थी आपको twelve cal arc flash suit की requirement है ना"
+      },
+      {
+        "n": 2,
+        "_id": "item_1ef2bbfd500f",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595311.9909022",
+        "content": "जी electrical और protective suit का rate चाहिए था।"
+      },
+      {
+        "n": 3,
+        "_id": "item_e94ec34eacb8",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595312.7668228",
+        "content": "ठीक है, आपको quantity कितनी चाहिए?"
+      },
+      {
+        "n": 4,
+        "_id": "item_310369d12d93",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595320.7919028",
+        "content": "quantity चाहिए 12। आप मुझे WhatsApp कर दीजिए ना, मैं आपको description में WhatsApp कर देती हूँ।"
+      },
+      {
+        "n": 5,
+        "_id": "item_7dddc120c643",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595320.817559",
+        "content": "ज़रूर, पहले arc rating बताइए। 40 केल, 8 केल या कुछ और?"
+      },
+      {
+        "n": 6,
+        "_id": "item_ae1b378b2ac3",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595325.2369585",
+        "content": "जी?"
+      },
+      {
+        "n": 7,
+        "_id": "item_38858af65352",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595325.255337",
+        "content": "40 कल, 8 कल या कुछ और?"
+      },
+      {
+        "n": 8,
+        "_id": "item_ad03d720dd78",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595334.2712107",
+        "content": "12 कल"
+      },
+      {
+        "n": 9,
+        "_id": "item_df5b713f2cbe",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595334.3067489",
+        "content": "माफ़ कीजिए। मैं ठीक से समझ नहीं पाई। 1 बार फिर से बता दीजिए।"
+      }
+    ],
+    "updatedAt": "2026-07-14T11:57:00.662252+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f8119992614392514c36a/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f8119992614392514c36a/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=a9d322eb2c0c6b058190a93a86dd75222343e376c4d7c8e3087aeb9e9d021bbaae19aaf9c6a79f56b68bed02c6ac6331461602a6849cc3f2705956acf36e474e9bbf6d72cdd0c0fc2310317e74613fe2f2b9672dcd544aae105ad2a4ed06ad61ec394ea4c5ab7853ef89105bbff97812549011fac0dbfa9a015c324a341273c50c5f4384e3ed47865cf9e0497456a281c72adc6a5e7b46dbaa2fab16e5927f02b2283632e1f10c8ed645ba0256ba4893c93e4d24f71ffe2c42889a6284db739e1b74fdf37e8799401dd9d9fc4d4acd54268f6b321aadb0b239c859118c92e6082bac57cc63c97df5ba846fa228b81e25d4fc05c60357a8e9b6927ecd5941c2ff"
+  },
+  "6a4f8126992614392514c37f": {
+    "number": 15,
+    "callLogId": "6a4f8126992614392514c37f",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_adb360890cae",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595308.924642",
+        "content": "Hello, आपको ATV motorcycle की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_bb0bd63b4348",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595313.1775398",
+        "content": "Hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_ed85d729f2ed",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595316.3961933",
+        "content": "Hello"
+      },
+      {
+        "n": 4,
+        "_id": "item_939818f7126e",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595316.4899964",
+        "content": "Yes."
+      },
+      {
+        "n": 5,
+        "_id": "added-1784022709317-4",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "Hello"
+      },
+      {
+        "n": 6,
+        "_id": "item_b4bccae17e98",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595333.975536",
+        "content": "आप जिस seller को call कर रहे थे, वह अभी available नहीं थे। मैं India Mart help desk से बोल रही हूं। 300 cc चाहिए या 200 cc?"
+      },
+      {
+        "n": 7,
+        "_id": "item_953748519fbd",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595334.1818812",
+        "content": "20 cc"
+      },
+      {
+        "n": 8,
+        "_id": "item_0206fbc2d182",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595344.848852",
+        "content": "माफ़ कीजिए, मैं ठीक से समझ नहीं पाई। एक बार फिर से बता दीजिए।"
+      },
+      {
+        "n": 9,
+        "_id": "added-1784022820563-8",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "petrol bike"
+      },
+      {
+        "n": 10,
+        "_id": "added-1784022738810-9",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "20cc petrol bike for kids"
+      },
+      {
+        "n": 11,
+        "_id": "added-1784022763976-10",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "",
+        "content": "thik hai petrol chahiye 300cc ya 200 cc?"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:53:50.510270+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f8126992614392514c37f/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f8126992614392514c37f/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=25aa03457df97c45b7a0780c42ef8b4874a5b5d1198b9965750ddcb3597c4b4d99c6a2f563c2ed97388b2403b022a4196e3dbb7b817cce2b88e5776a6e76fe469497c4be077b75951a5430bac2fd5c7c3b04e7e658b479f61fd6052d6db2306cfdb8c6a0163105b397aade9a8fb42641b50b2ec64152837829d8418db3c8737aff5096d571d7d7b28038f6dd65ccba347ee197d422a562b311b43800f35487b9651d47bf7c06bb0f5750dd1671809062e00cfbff9de00d93ed247c471d43115d59dcef1f522d5fcc6d172a13cdd287b788460c021933eff88064b56f7f64471d2e832553cbd20fba5be6167563053c01c5313eb7adc61ca499571b1226753cc2"
+  },
+  "6a4f820b15c69c1dca7982a4": {
+    "number": 17,
+    "callLogId": "6a4f820b15c69c1dca7982a4",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_0b3974a6d4fd",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595536.4016025",
+        "content": "आपको Lux Essence  की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_97f72b82156d",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595539.8511913",
+        "content": "हां जी Madam।"
+      },
+      {
+        "n": 3,
+        "_id": "item_4fe77099cc58",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595540.7678967",
+        "content": "आप जिस seller को call कर रहे थे, वह अभी available नहीं थे। मैं India Mart help desk से बोल रही हूँ। अब कितना kg चाहिए?"
+      },
+      {
+        "n": 4,
+        "_id": "item_0d18f923fa1e",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595554.201152",
+        "content": "एक बोतल चाहिए।"
+      },
+      {
+        "n": 5,
+        "_id": "item_bcd5589bf9ec",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595554.2346354",
+        "content": "ठीक है, 1 पीस चाहिए। Form liquid, powder या paste।"
+      },
+      {
+        "n": 6,
+        "_id": "item_df7f94099cce",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595562.1333847",
+        "content": "Liquid"
+      },
+      {
+        "n": 7,
+        "_id": "item_b32f4941ddb5",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595562.1635604",
+        "content": "अच्छा, liquid चाहिए। Brand Lux, IFF, Peacock, Bush, Matrix या VKL।"
+      },
+      {
+        "n": 8,
+        "_id": "item_b5bbe5f0176e",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595579.6581302",
+        "content": "ब्रांड में नहीं मुझे quality बढ़िया वो चाहिए। या ये अभी तो सारे fake ब्रांड हैं मुझे बढ़िया ऐसे चाहिए कंपनी का कोई matter नहीं।"
+      },
+      {
+        "n": 9,
+        "_id": "item_10e52b91eba6",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595579.6890457",
+        "content": "Seller सही brand और quality बताने में better रहेगा. फिर भी brand बताइए, Lux, IFF, Peacock, Bush, Matrix या VKL?\n"
+      },
+      {
+        "n": 10,
+        "_id": "item_5bb5d1b66577",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783595592.4795663",
+        "content": "bush"
+      },
+      {
+        "n": 11,
+        "_id": "item_980e2a83b059",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783595596.5250993",
+        "content": "IndiaMART को कॉल करने के लिए धन्यवाद। आपका दिन शुभ हो।"
+      }
+    ],
+    "updatedAt": "2026-07-14T09:58:02.781031+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f820b15c69c1dca7982a4/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f820b15c69c1dca7982a4/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=90eb0cd1f7f5261fa823f73e004bd048984c2d0c3878d3d54d001df404200a2152030f90be4a78421a8d512c3b87bff751cb4770d31a7cc526c9a4ecafe3c399aa19324eadb9dadcf09f5d52deae42bb5aa1f9004082ee3afee3003419170d6f27936375c8e7ad4dea191e7c9acf34b8718c6c57aa09d25e2efcbd8e0f0e109bb64c5b6b68f6f7849df884f2bb15e467fb80f047c7afd38780e2b96c7340f3ac446d4596901f9b0e07d539cc105eb981b3dc927d773908378f969526837347189341b0ea477852343ae17ec1245de7a4431a1b5766c7adc3676eb23831dd6c71b81e602b79ef99133b4765111687a8c99fd502fb27033ea55a37eeda8067ca32"
+  },
+  "6a4f84b610b9f353c5f20c24": {
+    "number": 20,
+    "callLogId": "6a4f84b610b9f353c5f20c24",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_ed6f59aa9c7a",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783596220.4802737",
+        "content": "All types of rotavator parts की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_ec7cf8d9b4d9",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596223.4136357",
+        "content": "जी\n"
+      },
+      {
+        "n": 3,
+        "_id": "item_0c5c67f6b8fe",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596224.269864",
+        "content": "hello"
+      },
+      {
+        "n": 4,
+        "_id": "item_bfbf1f8f010f",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783596237.0627077",
+        "content": "आप जिस seller को call कर रहे थे, वह अभी available नहीं थे। मैं India Mart help desk से बोल रही हूँ। आपको कितने set या piece चाहिए?"
+      },
+      {
+        "n": 5,
+        "_id": "item_561f1c9e3ec0",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596237.0867488",
+        "content": "Hello"
+      },
+      {
+        "n": 6,
+        "_id": "item_25f3edbeed8f",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596246.5051377",
+        "content": "Hello"
+      },
+      {
+        "n": 7,
+        "_id": "item_01bd727da54d",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596247.8171287",
+        "content": "हां, मैं सुन पा रही हूं। आपको कितने set या piece चाहिए?"
+      },
+      {
+        "n": 8,
+        "_id": "added-1784023816430-7",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "जी मुझे हमारा"
+      },
+      {
+        "n": 9,
+        "_id": "item_b8aa4f9991a8",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596247.8403032",
+        "content": "Hello"
+      },
+      {
+        "n": 10,
+        "_id": "item_d7bbf4068cbd",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783596255.0488396",
+        "content": "माफ़ कीजिए, मैं ठीक से समझ नहीं पाई, एक बार फिर से बता दीजिए."
+      },
+      {
+        "n": 11,
+        "_id": "added-1784024004400-10",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "",
+        "content": "ha bataiye"
+      },
+      {
+        "n": 12,
+        "_id": "added-1784023851247-11",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "अपना wholesale का काम है और हमें बहुत सारी quantity चाहिए"
+      },
+      {
+        "n": 13,
+        "_id": "added-1784023887734-12",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "",
+        "content": "samaj gai"
+      },
+      {
+        "n": 14,
+        "_id": "item_8b4b3feb6cbb",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783596263.786289",
+        "content": "ठीक है, बहुत सारी quantity. अब manufacturer brand बताइए: Shaktiman या Mahindra?\n"
+      },
+      {
+        "n": 15,
+        "_id": "item_6d0fb644bfbd",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783596275.9966426",
+        "content": "जी नहीं local pass चाहिए।"
+      },
+      {
+        "n": 16,
+        "_id": "item_79ac0faa7072",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783596276.0387187",
+        "content": "लोकल pass समझ गई. Rotavator size क्या चाहिए: six feet या seven feet?"
+      }
+    ],
+    "updatedAt": "2026-07-14T10:13:38.930736+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f84b610b9f353c5f20c24/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f84b610b9f353c5f20c24/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=3429257a2cf8cb67b214b7b9835e7287c08a1e01dd4f30aa34db43ae5f9ddcec0ce80e8357c040dacfaf1c2609ec72628a68c5d67bfec68bc42650845ca47cbad540601cad1e1817b5f80431489447fc6c81b36459be5c4d1ae62b0c39268870b9d0737941ed3a3d86c8b7045b0861a2f39f895e011f3699d82b1e9194b352f4b355b1a32eff7a9f78edc490573789569c8dab672f2a64442d39e457a5f84880a40583fc1ae54c94c495d082e4897a2e8db3071beff65536d726941cbb56852592253fc079d749d13509af218fd57c7df95d03c959380d5cea9c960cb1c1423066ac6e7fcc27a7680c8dfda534e936eac102f932403a70b6bec969ab4d74b5d6"
+  },
+  "6a4f973a4a4f4672f9013b9a": {
+    "number": 59,
+    "callLogId": "6a4f973a4a4f4672f9013b9a",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_275152dac404",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783600958.8902137",
+        "content": "आपको vermicompost की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_38ff51ac24ab",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783601050.1766682",
+        "content": "आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा है कृपया line पर बने रहे The person you are speaking with has put your call on hold Please stay on the line. आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा है कृपया line पर बने रहे The person you are speaking with has put your call on hold. Please stay on the line आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा है कृपया line पर बने रहे The person you are speaking with has put your call on hold. Please stay on the line. आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा है कृपया line पर बने रहे. The person you are speaking with has put your call on hold. Please stay on the line. आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा है कृपया line पर बने रहे. The person you are speaking with has put your call on hold. Please stay on the line. आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा है कृपया line पर बने रहे. The person you are speaking with has put your call on hold. Please stay on the line आप जिस व्यक्ति से बात कर रहे हैं उन्होंने आपके call को hold पर रखा"
+      }
+    ],
+    "updatedAt": "2026-07-14T10:32:32.009137+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f973a4a4f4672f9013b9a/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f973a4a4f4672f9013b9a/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=01e20033df2735a843a1d9435a7d21432140b2c1cd1fa622131763199689c735a6321c9a058d54693b555a1cc5dbc1689fd5d140a5b4243712bf7627a57b43800eb9aa4d862526c5c095beac2e0afb8b600a7ee1f397dd00f277901800cbe97e3048c9c4a55aee57267436973219bec6a42928eb588af82de087e24d81a9d48927ba357a2ad476eb6115dd85072b8ceea811cb9b83ab8cc7c7c10e8ba26637ab69cf10c90fd2d1ae402baa36a4430921888aab4e3bd37141a0238d1c95d7f4b47a67cbebf94d9203a3fd03f710ad3f3438effff16acbd5cbab61a23589264a50fcbce853164708f00d7a661be8b836e4e33b7aa83e3bae5dfb2ec734df46358f"
+  },
+  "6a4f9c7ef28f481edec74e9d": {
+    "number": 62,
+    "callLogId": "6a4f9c7ef28f481edec74e9d",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_55bd4d970530",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602307.0062966",
+        "content": "आपको hard board paper की requirement है ना"
+      },
+      {
+        "n": 2,
+        "_id": "item_3d969ba20793",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602311.392802",
+        "content": "नहीं"
+      },
+      {
+        "n": 3,
+        "_id": "item_f0b3dfcecaa3",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602311.9989433",
+        "content": "अच्छा, सही product name क्या है?"
+      },
+      {
+        "n": 4,
+        "_id": "item_369d2492d287",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602320.1935787",
+        "content": "असारी acrylic sheet."
+      },
+      {
+        "n": 5,
+        "_id": "item_f6ff38cb1a44",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602320.209728",
+        "content": "अच्छा, असारी acrylic sheet चाहिए. आपको कितनी quantity चाहिए?\n"
+      },
+      {
+        "n": 6,
+        "_id": "item_25fa90b9af7c",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602329.2418654",
+        "content": "multiple"
+      },
+      {
+        "n": 7,
+        "_id": "item_b2efe0ce46f8",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602329.2581122",
+        "content": "समझ गई, multiple है। बंडल kg या टर्म में कितनी चाहिए?"
+      },
+      {
+        "n": 8,
+        "_id": "item_0cf79cecbbb9",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602341.0428288",
+        "content": "multiple pieces"
+      },
+      {
+        "n": 9,
+        "_id": "item_dda7bd15c768",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602341.056174",
+        "content": "ठीक है, pieces के हिसाब से भी चल जाएगा। thickness बताइए, 16 ounce या 18 ounce?"
+      },
+      {
+        "n": 10,
+        "_id": "item_ff50275bd18f",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602353.8280396",
+        "content": "1.8 mm एंड 2.7 mm both"
+      },
+      {
+        "n": 11,
+        "_id": "item_cfb713841f5b",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602358.1607502",
+        "content": "India Mart को कॉल करने के लिए धन्यवाद। आपका दिन शुभ हो।"
+      }
+    ],
+    "updatedAt": "2026-07-14T10:18:05.008657+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f9c7ef28f481edec74e9d/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f9c7ef28f481edec74e9d/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084240Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=2723056e2478522fa40e6bd6864aa7ba4579083e523f3fc118df8aa6de45f9c6b3226dfa61053d1949259a3cc3c5786ede17796138f063fbf7d48c4ca2b3a3393130cd0bcb3bf2e9e05fb67a3d4f89982bb9e0a00e9c8d2d67d63369530282d5890de67d35e96e5f4f1e6c4678a3ca3267f4f10ba51f0b5f636b1d0426b7641e5a3f8479bb4d62c049f5adfc39efdcb698781cbc7afe923614015e461033023d2841794391b1191ab7fc7713f83b22770bbb209edad97c692c6e389920b2e81bd9a6b698076703f728593c0759bccba0b508f76f67199724bd0f100f225bce87455710e40f9a8a4a614befd7f6321aed13d553aba00f9d306957c69267e168ed"
+  },
+  "6a4f9d4f50b68b4c32c66245": {
+    "number": 63,
+    "callLogId": "6a4f9d4f50b68b4c32c66245",
+    "messages": [
+      {
+        "n": 1,
+        "_id": "item_8de226f5562f",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602517.5113127",
+        "content": "आपको Raspberry Pi 5 और Jio by Tram की requirement है ना?"
+      },
+      {
+        "n": 2,
+        "_id": "item_da579c71aa45",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602521.451975",
+        "content": "Hello"
+      },
+      {
+        "n": 3,
+        "_id": "item_e36072b68439",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602522.1435466",
+        "content": "जी"
+      },
+      {
+        "n": 4,
+        "_id": "item_9bb5a4001b36",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602534.5192962",
+        "content": "आप जिस seller call कर रहे थे, अभी available नहीं थे। मैं India Mart help desk से बोल रही हूं, कितना piece चाहिए?"
+      },
+      {
+        "n": 5,
+        "_id": "item_c7cc6ee2e3f2",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602534.535131",
+        "content": "25"
+      },
+      {
+        "n": 6,
+        "_id": "item_2d4490b64768",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602544.323264",
+        "content": "ठीक है, 25 piece। Model Raspberry Pi 5 है या कुछ और?"
+      },
+      {
+        "n": 7,
+        "_id": "item_9d11f007c801",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602544.3426888",
+        "content": "Raspberry Pi 5 16GB वेरिएंट।"
+      },
+      {
+        "n": 8,
+        "_id": "item_8895277fab1a",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "1783602560.070345",
+        "content": "ठीक है, Raspberry Pi 516GB। सेलर डिटेल्स WhatsApp एंड SMS और email पर शेयर हो जाएंगी।"
+      },
+      {
+        "n": 9,
+        "_id": "item_5f629f3094fe",
+        "role": "user",
+        "type": "message",
+        "createdAt": "1783602564.4590168",
+        "content": "हम्म हम्म"
+      },
+      {
+        "n": 10,
+        "_id": "added-1784024210452-9",
+        "role": "user",
+        "type": "message",
+        "createdAt": "",
+        "content": "okay"
+      },
+      {
+        "n": 11,
+        "_id": "added-1784024216940-10",
+        "role": "assistant",
+        "type": "message",
+        "createdAt": "",
+        "content": "इंडियामार्ट को कॉल करने के लिए धन्यवाद, आपका दिन शुभ हो।\n"
+      }
+    ],
+    "updatedAt": "2026-07-14T10:17:06.325047+00:00",
+    "recordingUrl": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f9d4f50b68b4c32c66245/recording.ogg",
+    "public_url": "https://storage.googleapis.com/bluemachines-prod/forever/697b54ba74ba05263247af6b/recording/6a4f9d4f50b68b4c32c66245/recording.ogg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=bm-gcs%40bluemachines-prod.iam.gserviceaccount.com%2F20260714%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260714T084239Z&X-Goog-Expires=604800&X-Goog-SignedHeaders=host&X-Goog-Signature=9bce595fa2f9524cb8d6d8d0e6b8216d27e6946e87696adcede257265a8c5c5c7c671a605a9d71c3c8fcc31a6c801216c195c693082c5fbd255a4c89e8be3bf8db7bef8fbd5d1a9915a77ac68567f8891360221185ced59bf876228ae52b8d417d511c9991511711613ef3dbab43745d7642f87866b9621bd1388fd18f02f49fbdb775aaed47519eb66856084aad047dec3d39c8cc38cad2795a683d9ccf32d97f3accafa3a9a08e66e8d4c70e0e91126f5a5fae85c8620e68c0c31cbe120d8dfd04582fcb5066773e3ef37e69a507a71db0811059a15f5f3110ee4d27a504ec6de442581197c5cf14f6e297bbbc18c0440639aa8c76a688689ecf53d4fe00f2"
+  }
+}

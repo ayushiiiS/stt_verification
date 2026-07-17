@@ -4,33 +4,55 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Transcript Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div>
+      <p class="brand-kicker">Golden Set</p>
       <h1>Call Transcript Review</h1>
-      <p class="subtitle" id="subtitle">Select a dataset to review and edit transcripts</p>
+      <p class="subtitle" id="subtitle">Upload transcripts, run Sarvam STT, edit finals, verify</p>
     </div>
-    <div class="stats" id="stats"></div>
+    <div class="topbar-right">
+      <div class="user-chip">
+        <span class="user-chip-label">Signed in</span>
+        <strong id="currentUser">{{ current_user }}</strong>
+        <a class="btn secondary logout-btn" href="/logout">Log out</a>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
   </header>
 
   <nav class="dataset-tabs" id="datasetTabs">
-    <button type="button" class="dataset-tab active" data-dataset="muthoot">
-      Muthoot <span class="tab-count">{{ muthoot_total }}</span>
+    {% for ds in datasets %}
+    <button type="button" class="dataset-tab {% if loop.first %}active{% endif %}" data-dataset="{{ ds.id }}">
+      {{ ds.label }} <span class="tab-count" id="count-{{ ds.id }}">{{ totals[ds.id] }}</span>
     </button>
-    <button type="button" class="dataset-tab" data-dataset="indiamart">
-      IndiaMART <span class="tab-count">{{ indiamart_total }}</span>
-    </button>
+    {% endfor %}
   </nav>
 
-  <div class="progress-panel" id="progressPanel">
-    <div class="progress-header">
-      <span class="progress-title">Sarvam STT progress</span>
-      <span class="progress-meta" id="progressMeta">Loading…</span>
+  <div class="toolbar">
+    <div class="upload-panel">
+      <label class="btn secondary upload-btn">
+        Upload JSON
+        <input type="file" id="uploadInput" accept=".json,application/json" hidden />
+      </label>
+      <button type="button" class="btn accent" id="startSttBtn">Start Sarvam STT</button>
+      <button type="button" class="btn secondary" id="exportVerifiedBtn">Export verified</button>
+      <span class="upload-hint" id="uploadHint">JSON with transcripts + public URLs</span>
     </div>
-    <div class="progress-track">
-      <div class="progress-fill" id="progressFill"></div>
+    <div class="progress-panel" id="progressPanel">
+      <div class="progress-header">
+        <span class="progress-title">Sarvam STT</span>
+        <span class="progress-meta" id="progressMeta">—</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
     </div>
   </div>
 
@@ -40,8 +62,11 @@
         <input type="search" id="search" placeholder="Search # or call ID…" />
         <select id="statusFilter">
           <option value="all">All statuses</option>
-          <option value="pending">Pending review</option>
+          <option value="stt">Has STT</option>
+          <option value="no_stt">No STT</option>
+          <option value="pending">Final not saved</option>
           <option value="edited">Final saved</option>
+          <option value="verified">Verified</option>
         </select>
       </div>
       <ul class="call-list" id="callList"></ul>
@@ -50,34 +75,62 @@
 
     <section class="workspace" id="workspace">
       <div class="empty-state" id="emptyState">
-        <p>Select a call from the list to play audio and review transcripts.</p>
+        <div class="empty-card">
+          <h3>Ready to review</h3>
+          <p>Upload a JSON file with transcripts and audio URLs, then start Sarvam STT for this tab.</p>
+        </div>
       </div>
 
       <div class="call-detail hidden" id="callDetail">
         <div class="sticky-top">
           <div class="detail-header">
             <div>
-              <h2 id="callId"></h2>
+              <div class="call-title-row">
+                <h2 id="callId"></h2>
+                <span id="saveStatusBadge" class="save-status hidden"></span>
+              </div>
               <p class="meta" id="callMeta"></p>
             </div>
             <div class="actions">
               <button type="button" class="btn secondary" id="prevCallBtn">Previous</button>
               <button type="button" class="btn secondary" id="nextCallBtn">Next</button>
-              <button type="button" class="btn secondary" id="resetBtn">Reset to Sarvam</button>
-              <button type="button" class="btn primary" id="saveBtn">Save final transcript</button>
+              <button type="button" class="btn secondary" id="resetBtn">Reset</button>
+              <button type="button" class="btn primary" id="saveBtn">Save final</button>
+              <button type="button" class="btn verify" id="verifyBtn">Verify</button>
             </div>
           </div>
 
           <div class="audio-panel">
-            <audio id="player" controls preload="none"></audio>
+            <div id="waveform" class="waveform"></div>
+            <div class="audio-controls">
+              <button type="button" class="btn secondary icon-btn" id="playPauseBtn" title="Play/Pause">▶</button>
+              <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+              <label class="speed-control">
+                Speed
+                <select id="speedSelect">
+                  <option value="0.75">0.75×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="1.75">1.75×</option>
+                  <option value="2">2×</option>
+                </select>
+              </label>
+              <span class="sync-hint">Space play/pause (outside editor) · ←/→ ±10s · click a turn to seek</span>
+            </div>
+            <audio id="player" preload="metadata" class="hidden-audio"></audio>
           </div>
         </div>
 
+        <div class="transcript-help">
+          Final starts as a draft (not saved). Press <kbd>Tab</kbd> on a Latin Hindi word to pick देवनागरी or keep Latin.
+        </div>
         <div class="transcript-grid" id="transcriptGrid"></div>
       </div>
     </section>
   </main>
 
+  <div class="suggest-popup hidden" id="suggestPopup"></div>
   <div class="toast hidden" id="toast"></div>
   <script src="/static/app.js"></script>
 </body>
