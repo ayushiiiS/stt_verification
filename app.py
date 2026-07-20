@@ -14,6 +14,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from typing import Any
+
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 
 from auth import (
@@ -90,6 +92,8 @@ app.before_request(require_login_before_request)
 calls_by_id: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 call_order: dict[str, list[str]] = {name: [] for name in DATASETS}
 corrections: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
+_transliterate_cache: dict[str, list[str]] = {}
+_transliterate_http: Any | None = None
 sarvam_by_dataset: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 phrase_cache: dict[str, list[dict]] = {}
 _data_loaded = False
@@ -1407,7 +1411,7 @@ def export_verified():
 
     for call_id in order:
         saved = corrections[dataset].get(call_id)
-        if review_status(saved) != "verified":
+        if review_status(saved) != "verified" or saved is None:
             continue
         verified_order.append(call_id)
         export_data[call_id] = {
@@ -1553,6 +1557,7 @@ def recommend_phrases():
 @app.route("/api/transliterate", methods=["POST"])
 def transliterate():
     """Latin Hindi → Devanagari via Google Input Tools."""
+    global _transliterate_http
     import requests as http_requests
 
     payload = request.get_json(silent=True) or {}
@@ -1560,14 +1565,9 @@ def transliterate():
     if not text:
         return jsonify({"ok": True, "text": "", "candidates": []})
 
-    # Tiny process-local cache to make repeated words fast
-    cache = getattr(transliterate, "_cache", None)
-    if cache is None:
-        transliterate._cache = {}
-        cache = transliterate._cache
     cache_key = text.lower()
-    if cache_key in cache:
-        candidates = cache[cache_key]
+    if cache_key in _transliterate_cache:
+        candidates = _transliterate_cache[cache_key]
         return jsonify(
             {
                 "ok": True,
@@ -1576,13 +1576,11 @@ def transliterate():
             }
         )
 
-    session = getattr(transliterate, "_session", None)
-    if session is None:
-        transliterate._session = http_requests.Session()
-        session = transliterate._session
+    if _transliterate_http is None:
+        _transliterate_http = http_requests.Session()
 
     try:
-        response = session.get(
+        response = _transliterate_http.get(
             "https://inputtools.google.com/request",
             params={
                 "text": text,
@@ -1603,9 +1601,9 @@ def transliterate():
             block = data[1][0] if data[1] else None
             if block and len(block) >= 2 and isinstance(block[1], list):
                 candidates = [str(c) for c in block[1] if c]
-        cache[cache_key] = candidates
-        if len(cache) > 1000:
-            cache.pop(next(iter(cache)))
+        _transliterate_cache[cache_key] = candidates
+        if len(_transliterate_cache) > 1000:
+            _transliterate_cache.pop(next(iter(_transliterate_cache)))
         best = candidates[0] if candidates else text
         return jsonify({"ok": True, "text": best, "candidates": candidates})
     except Exception as exc:  # noqa: BLE001
