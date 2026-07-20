@@ -43,7 +43,32 @@ from transcript_utils import (
 
 BASE_DIR = Path(__file__).resolve().parent
 ALL_DATA_DIR = BASE_DIR / "all_data"
-UPLOADS_DIR = BASE_DIR / "uploads"
+
+
+def _resolve_uploads_dir() -> Path:
+    """Use /tmp on Vercel (read-only deploy FS); otherwise local uploads/."""
+    if (os.environ.get("VERCEL") or "").strip() or (
+        os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or ""
+    ).strip():
+        path = Path("/tmp/golden_set_uploads")
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    path = BASE_DIR / "uploads"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return path
+    except OSError:
+        fallback = Path("/tmp/golden_set_uploads")
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+UPLOADS_DIR = _resolve_uploads_dir()
+# Keep auth users.json on the same writable root.
+os.environ.setdefault("GOLDEN_SET_UPLOADS_DIR", str(UPLOADS_DIR))
 
 DATASET_META = (
     {"id": "indiamart", "label": "IndiaMART"},
@@ -54,6 +79,11 @@ DATASETS = tuple(item["id"] for item in DATASET_META)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SECRET_KEY") or "golden-set-dev-secret"
+app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 24 * 14
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+if (os.environ.get("VERCEL") or "").strip():
+    app.config["SESSION_COOKIE_SECURE"] = True
 app.before_request(require_login_before_request)
 
 calls_by_id: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
@@ -119,7 +149,7 @@ def neighbor_ids(dataset: str, call_id: str) -> tuple[str | None, str | None]:
     return prev_id, next_id
 
 
-def save_corrections(dataset: str) -> None:
+def save_corrections(dataset: str, call_id: str | None = None) -> None:
     ensure_dataset_dirs(dataset)
     dump_numbered(
         corrections_path_for(dataset),
@@ -127,8 +157,45 @@ def save_corrections(dataset: str) -> None:
         call_order[dataset],
     )
     phrase_cache.pop(dataset, None)
-    # Expand into per-call transcript_final.json under gs://…/<Agent>/<call_id>/
-    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "corrected_transcripts.json")
+    try:
+        if call_id and call_id in corrections[dataset]:
+            gcs_storage.push_transcript_final(
+                dataset, call_id, corrections[dataset][call_id]
+            )
+        elif call_id and call_id not in corrections[dataset]:
+            # Reset / cleared unfit-only record — wipe remote final
+            gcs_storage.push_transcript_final(
+                dataset,
+                call_id,
+                {"callLogId": call_id, "messages": [], "cleared": True},
+            )
+        else:
+            gcs_storage.push_dataset_file(
+                UPLOADS_DIR, dataset, "corrected_transcripts.json"
+            )
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS corrections sync failed ({dataset}/{call_id}): {exc}", flush=True)
+        raise RuntimeError(f"Failed to save to cloud storage: {exc}") from exc
+
+
+def ensure_correction_loaded(dataset: str, call_id: str) -> dict | None:
+    """Load a single final from GCS when memory/local aggregate is cold."""
+    existing = corrections[dataset].get(call_id)
+    if existing:
+        return existing
+    try:
+        remote = gcs_storage.download_json(
+            gcs_storage.call_object_key(dataset, call_id, gcs_storage.FINAL_NAME)
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS final fetch failed ({dataset}/{call_id}): {exc}", flush=True)
+        return None
+    if isinstance(remote, dict) and (
+        remote.get("messages") or remote.get("editedBy") or remote.get("unfit")
+    ):
+        corrections[dataset][call_id] = remote
+        return remote
+    return None
 
 
 def load_corrections_file(dataset: str, path: Path | None) -> None:
@@ -1001,21 +1068,24 @@ def save_correct(call_id: str):
         return jsonify({"error": "messages array required"}), 400
 
     cleaned = clean_saved_messages(messages)
-    corrections[dataset][call_id] = {
-        "number": recording_number(dataset, call_id),
-        "callLogId": call_id,
-        "messages": cleaned,
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
-        "editedBy": reviewer,
-        # Re-saving clears verification so a second person must re-verify
-        "verifiedBy": "",
-        "verifiedAt": None,
-        # Saving a final also clears unfit
-        "unfit": False,
-        "unfitBy": "",
-        "unfitAt": None,
-    }
-    save_corrections(dataset)
+    try:
+        corrections[dataset][call_id] = {
+            "number": recording_number(dataset, call_id),
+            "callLogId": call_id,
+            "messages": cleaned,
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "editedBy": reviewer,
+            # Re-saving clears verification so a second person must re-verify
+            "verifiedBy": "",
+            "verifiedAt": None,
+            # Saving a final also clears unfit
+            "unfit": False,
+            "unfitBy": "",
+            "unfitAt": None,
+        }
+        save_corrections(dataset, call_id=call_id)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 500
 
     return jsonify(
         {
@@ -1033,7 +1103,9 @@ def verify_correct(call_id: str):
     if call_id not in calls_by_id[dataset]:
         return jsonify({"error": "Call not found"}), 404
 
-    saved = corrections[dataset].get(call_id)
+    saved = ensure_correction_loaded(dataset, call_id) or corrections[dataset].get(
+        call_id
+    )
     if not saved:
         return jsonify({"error": "Save the final transcript before verifying"}), 400
     if saved.get("unfit"):
@@ -1052,7 +1124,10 @@ def verify_correct(call_id: str):
     saved["verifiedBy"] = verifier
     saved["verifiedAt"] = datetime.now(timezone.utc).isoformat()
     corrections[dataset][call_id] = saved
-    save_corrections(dataset)
+    try:
+        save_corrections(dataset, call_id=call_id)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 500
 
     return jsonify(
         {
@@ -1075,41 +1150,47 @@ def mark_unfit(call_id: str):
     if not user:
         return jsonify({"error": "Login required"}), 401
 
-    existing = corrections[dataset].get(call_id) or {}
+    existing = (
+        ensure_correction_loaded(dataset, call_id) or corrections[dataset].get(call_id) or {}
+    )
 
-    if request.method == "DELETE":
-        if not existing:
-            return jsonify({"ok": True, "status": "pending"})
-        existing.pop("unfit", None)
-        existing.pop("unfitBy", None)
-        existing.pop("unfitAt", None)
-        # Drop empty unfit-only records
-        if not existing.get("messages") and not existing.get("editedBy"):
-            corrections[dataset].pop(call_id, None)
-            save_corrections(dataset)
-            return jsonify({"ok": True, "status": "pending"})
-        corrections[dataset][call_id] = existing
-        save_corrections(dataset)
-        return jsonify({"ok": True, "status": review_status(existing)})
+    try:
+        if request.method == "DELETE":
+            if not existing:
+                return jsonify({"ok": True, "status": "pending"})
+            existing.pop("unfit", None)
+            existing.pop("unfitBy", None)
+            existing.pop("unfitAt", None)
+            existing.pop("unfitReason", None)
+            # Drop empty unfit-only records
+            if not existing.get("messages") and not existing.get("editedBy"):
+                corrections[dataset].pop(call_id, None)
+                save_corrections(dataset, call_id=call_id)
+                return jsonify({"ok": True, "status": "pending"})
+            corrections[dataset][call_id] = existing
+            save_corrections(dataset, call_id=call_id)
+            return jsonify({"ok": True, "status": review_status(existing)})
 
-    payload = request.get_json(silent=True) or {}
-    reason = str(payload.get("reason") or "").strip()
+        payload = request.get_json(silent=True) or {}
+        reason = str(payload.get("reason") or "").strip()
 
-    entry = {
-        **existing,
-        "number": recording_number(dataset, call_id),
-        "callLogId": call_id,
-        "messages": existing.get("messages") or [],
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
-        "unfit": True,
-        "unfitBy": user,
-        "unfitAt": datetime.now(timezone.utc).isoformat(),
-        "unfitReason": reason,
-        "verifiedBy": "",
-        "verifiedAt": None,
-    }
-    corrections[dataset][call_id] = entry
-    save_corrections(dataset)
+        entry = {
+            **existing,
+            "number": recording_number(dataset, call_id),
+            "callLogId": call_id,
+            "messages": existing.get("messages") or [],
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "unfit": True,
+            "unfitBy": user,
+            "unfitAt": datetime.now(timezone.utc).isoformat(),
+            "unfitReason": reason,
+            "verifiedBy": "",
+            "verifiedAt": None,
+        }
+        corrections[dataset][call_id] = entry
+        save_corrections(dataset, call_id=call_id)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 500
 
     return jsonify(
         {
@@ -1127,7 +1208,10 @@ def reset_correct(call_id: str):
     dataset = resolve_dataset()
     if call_id in corrections[dataset]:
         del corrections[dataset][call_id]
-        save_corrections(dataset)
+        try:
+            save_corrections(dataset, call_id=call_id)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)}), 500
     if call_id not in calls_by_id[dataset]:
         return jsonify({"error": "Call not found"}), 404
     payload = build_call_payload(dataset, call_id)

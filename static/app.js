@@ -165,14 +165,23 @@ function updateCharCount(textarea) {
 }
 
 async function fetchJSON(url, options) {
-  const res = await fetch(url, options);
+  const res = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+  });
   if (res.status === 401) {
     window.location.href = "/login";
     throw new Error("Login required");
   }
-  const data = await res.json();
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(text.slice(0, 180) || `Request failed (${res.status})`);
+  }
   if (!res.ok) {
-    throw new Error(data.error || "Request failed");
+    throw new Error(data.error || data.message || `Request failed (${res.status})`);
   }
   return data;
 }
@@ -826,12 +835,22 @@ function syncHighlight() {
   const duration = getPlaybackDuration();
   updateTimeDisplays(t, duration);
 
-  // Highlight the latest turn whose start has been reached (sticky until next turn).
+  // Prefer inclusive start→end windows so short user turns are not skipped.
   let active = -1;
   state.draft.forEach((msg, index) => {
     if (msg.start == null || Number.isNaN(msg.start)) return;
-    if (t >= msg.start - 0.05) active = index;
+    const end =
+      msg.end != null && !Number.isNaN(msg.end)
+        ? msg.end
+        : msg.start + 1.2;
+    if (t >= msg.start - 0.02 && t < end + 0.02) active = index;
   });
+  if (active < 0) {
+    state.draft.forEach((msg, index) => {
+      if (msg.start == null || Number.isNaN(msg.start)) return;
+      if (t >= msg.start - 0.02) active = index;
+    });
+  }
 
   els.transcriptGrid.querySelectorAll(".turn-block").forEach((block) => {
     const index = Number(block.dataset.index);

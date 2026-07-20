@@ -16,7 +16,23 @@ DEFAULT_USERS = ("ayushi", "kriti", "akash", "yash")
 USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 
 _BASE_DIR = Path(__file__).resolve().parent
-USERS_PATH = _BASE_DIR / "uploads" / "users.json"
+
+
+def _uploads_root() -> Path:
+    env = (os.environ.get("GOLDEN_SET_UPLOADS_DIR") or "").strip()
+    if env:
+        return Path(env)
+    if (os.environ.get("VERCEL") or "").strip() or (
+        os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or ""
+    ).strip():
+        return Path("/tmp/golden_set_uploads")
+    return _BASE_DIR / "uploads"
+
+
+def _users_path() -> Path:
+    return _uploads_root() / "users.json"
+
+
 _lock = threading.Lock()
 
 
@@ -47,31 +63,33 @@ def _default_hashes() -> dict[str, str]:
 
 
 def _write_users_file(store: dict[str, str]) -> None:
-    USERS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = USERS_PATH.with_suffix(".tmp")
+    path = _users_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as handle:
         json.dump(store, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    tmp.replace(USERS_PATH)
+    tmp.replace(path)
     try:
         import gcs_storage
 
-        gcs_storage.push_users_file(USERS_PATH)
+        gcs_storage.push_users_file(path)
     except Exception as exc:  # noqa: BLE001
         print(f"GCS users sync failed: {exc}", flush=True)
 
 
 def _read_users_file() -> dict[str, str]:
+    path = _users_path()
     try:
         import gcs_storage
 
-        gcs_storage.hydrate_users_file(USERS_PATH, prefer_remote=False)
+        gcs_storage.hydrate_users_file(path, prefer_remote=False)
     except Exception:
         pass
-    if not USERS_PATH.exists():
+    if not path.exists():
         return {}
     try:
-        with USERS_PATH.open(encoding="utf-8") as handle:
+        with path.open(encoding="utf-8") as handle:
             data = json.load(handle)
         if not isinstance(data, dict):
             return {}

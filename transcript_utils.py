@@ -94,20 +94,22 @@ def _as_float(value) -> float | None:
 
 
 def timings_from_created_at(messages: list[dict]) -> list[dict]:
-    """Derive per-turn [start, end] seconds from message createdAt timestamps."""
+    """Derive per-turn [start, end] seconds from message createdAt timestamps.
+
+    Agent logs typically stamp assistant turns at speech *start* and user turns
+    at utterance *end*. Short gaps after a user stamp would otherwise skip the
+    user highlight — we expand with content-based duration and keep a minimum
+    window for every turn.
+    """
     if not messages:
         return []
 
-    stamps: list[float | None] = []
-    for msg in messages:
-        stamps.append(_as_float(msg.get("createdAt")))
-
+    stamps: list[float | None] = [_as_float(msg.get("createdAt")) for msg in messages]
     valid = [t for t in stamps if t is not None and t >= 0]
     if not valid:
         return [{"start": None, "end": None} for _ in messages]
 
     base = min(valid)
-    # Absolute unix times → relative to first turn; already-relative times stay as-is.
     relative: list[float | None] = []
     for t in stamps:
         if t is None:
@@ -117,20 +119,50 @@ def timings_from_created_at(messages: list[dict]) -> list[dict]:
         else:
             relative.append(max(0.0, t))
 
+    def estimate(msg: dict) -> float:
+        content_len = len(str(msg.get("content") or "").strip())
+        return max(1.0, min(18.0, content_len / 13.0 if content_len else 1.2))
+
     result: list[dict] = []
-    for i, start in enumerate(relative):
-        if start is None:
+    prev_end = 0.0
+    for i, msg in enumerate(messages):
+        rel = relative[i]
+        if rel is None:
             result.append({"start": None, "end": None})
             continue
-        end: float | None = None
+
+        est = estimate(msg)
+        role = (msg.get("role") or "").strip().lower()
+        next_rel: float | None = None
         for later in relative[i + 1 :]:
-            if later is not None and later > start:
-                end = later
+            if later is not None:
+                next_rel = later
                 break
-        if end is None:
-            content_len = len(str(messages[i].get("content") or ""))
-            end = start + max(1.5, min(12.0, content_len / 12.0))
+
+        if role == "user":
+            # createdAt ≈ end of user speech; keep a real highlight window
+            start = prev_end
+            end = max(float(rel), start + max(1.0, min(est, 8.0)))
+            if end <= start:
+                end = start + max(1.0, est)
+        else:
+            # createdAt ≈ start of assistant speech
+            start = max(float(rel), prev_end)
+            end = start + est
+            if next_rel is not None and next_rel > start:
+                # Don't run past the next stamped event, but keep a usable window.
+                end = max(start + 0.8, min(end, float(next_rel)))
+                if end - start < 0.8:
+                    end = start + 0.8
+
+        if start < prev_end:
+            start = prev_end
+            if end <= start:
+                end = start + max(0.8, est)
+
         result.append({"start": float(start), "end": float(end)})
+        prev_end = float(end)
+
     return result
 
 
