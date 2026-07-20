@@ -96,17 +96,19 @@ _data_loaded = False
 
 @app.before_request
 def ensure_data_loaded():
-    """Retry boot hydrate if import-time load_data failed or returned empty."""
-    global _data_loaded
-    if _data_loaded and any(call_order.values()):
+    """Keep login/signup fast — only ensure users; datasets load on demand."""
+    if request.endpoint in {"login", "signup", "static"}:
         return None
-    if request.path.startswith("/static/"):
+    path = request.path or ""
+    if path.startswith("/static/") or path.startswith("/login"):
         return None
+    # Users file only — datasets hydrate in resolve_dataset / ensure_dataset_loaded.
     try:
-        load_data()
-        _data_loaded = True
+        from auth import load_user_store
+
+        load_user_store()
     except Exception as exc:  # noqa: BLE001
-        print(f"ensure_data_loaded failed: {exc}", flush=True)
+        print(f"user store warm failed: {exc}", flush=True)
     return None
 
 
@@ -131,7 +133,8 @@ def first_existing(*paths: Path) -> Path | None:
 def resolve_dataset(raw: str | None = None) -> str:
     name = (raw or request.args.get("dataset") or "indiamart").strip().lower()
     if name not in DATASETS:
-        return "indiamart"
+        name = "indiamart"
+    ensure_dataset_loaded(name)
     return name
 
 
@@ -383,11 +386,70 @@ def persist_uploaded_calls(dataset: str, payload) -> None:
     gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "calls.json")
 
 
-def hydrate_persistence() -> None:
-    """Pull users + per-tab uploads from GCS before loading into memory."""
+_hydrated_datasets: set[str] = set()
+
+
+def hydrate_persistence(datasets: tuple[str, ...] | None = None) -> None:
+    """Pull users + selected tab uploads from GCS before loading into memory."""
     gcs_storage.hydrate_users_file(UPLOADS_DIR / "users.json", prefer_remote=True)
-    for dataset in DATASETS:
+    targets = datasets if datasets is not None else DATASETS
+    for dataset in targets:
         gcs_storage.sync_dataset_dir(UPLOADS_DIR, dataset, prefer_remote=True)
+
+
+def ensure_dataset_loaded(dataset: str) -> None:
+    """Hydrate + load a single dataset on first use (cuts cold-start latency)."""
+    global _data_loaded
+    key = (dataset or "").strip().lower()
+    if key not in DATASETS:
+        return
+    if key in _hydrated_datasets and call_order.get(key):
+        return
+    try:
+        gcs_storage.sync_dataset_dir(UPLOADS_DIR, key, prefer_remote=True)
+        calls_by_id[key] = {}
+        call_order[key] = []
+        corrections[key] = {}
+        sarvam_by_dataset[key] = {}
+        phrase_cache.pop(key, None)
+        if key == "indiamart":
+            load_indiamart()
+        else:
+            load_corrections_file(key, corrections_path_for(key))
+            load_uploaded_dataset(key)
+            path = dataset_sarvam_path(UPLOADS_DIR, key)
+            if path.exists():
+                try:
+                    with path.open(encoding="utf-8") as handle:
+                        sarvam_by_dataset[key] = json.load(handle)
+                except json.JSONDecodeError:
+                    sarvam_by_dataset[key] = {}
+            if not call_order[key]:
+                call_order[key] = sorted(calls_by_id[key].keys())
+        _hydrated_datasets.add(key)
+        if any(call_order.values()):
+            _data_loaded = True
+        print(
+            f"Loaded dataset {key}: {len(call_order.get(key) or [])} calls",
+            flush=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"ensure_dataset_loaded({key}) failed: {exc}", flush=True)
+
+
+def load_data() -> None:
+    """Bootstrap users; datasets load lazily via ensure_dataset_loaded."""
+    for name in DATASETS:
+        calls_by_id[name] = {}
+        call_order[name] = []
+        corrections[name] = {}
+        sarvam_by_dataset[name] = {}
+    phrase_cache.clear()
+    _hydrated_datasets.clear()
+    gcs_storage.hydrate_users_file(UPLOADS_DIR / "users.json", prefer_remote=True)
+    # Warm the default tab only — other tabs hydrate on first request.
+    ensure_dataset_loaded("indiamart")
+    print(f"Storage: {gcs_storage.status()}", flush=True)
 
 
 def load_uploaded_dataset(dataset: str) -> None:
@@ -485,30 +547,7 @@ def load_empty_clients() -> None:
     for dataset in DATASETS:
         if dataset == "indiamart":
             continue
-        load_corrections_file(dataset, corrections_path_for(dataset))
-        load_uploaded_dataset(dataset)
-        path = dataset_sarvam_path(UPLOADS_DIR, dataset)
-        if path.exists():
-            try:
-                with path.open(encoding="utf-8") as handle:
-                    sarvam_by_dataset[dataset] = json.load(handle)
-            except json.JSONDecodeError:
-                sarvam_by_dataset[dataset] = {}
-        if not call_order[dataset]:
-            call_order[dataset] = sorted(calls_by_id[dataset].keys())
-
-
-def load_data() -> None:
-    for name in DATASETS:
-        calls_by_id[name] = {}
-        call_order[name] = []
-        corrections[name] = {}
-        sarvam_by_dataset[name] = {}
-    phrase_cache.clear()
-    hydrate_persistence()
-    load_indiamart()
-    load_empty_clients()
-    print(f"Storage: {gcs_storage.status()}", flush=True)
+        ensure_dataset_loaded(dataset)
 
 
 def read_dataset_progress(dataset: str) -> dict:
@@ -913,6 +952,7 @@ def storage_status():
 
 @app.route("/")
 def index():
+    ensure_dataset_loaded("indiamart")
     totals = {name: len(call_order[name]) for name in DATASETS}
     return render_template(
         "index.html",

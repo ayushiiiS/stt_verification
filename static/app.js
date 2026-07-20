@@ -1749,4 +1749,4 @@ loadCalls();
 
 setInterval(() => {
   loadStats({ refreshCalls: true });
-}, 8000);
+}, 20000);

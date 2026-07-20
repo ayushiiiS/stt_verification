@@ -17,6 +17,9 @@ USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.IGNORECASE)
 
 _BASE_DIR = Path(__file__).resolve().parent
+_lock = threading.Lock()
+_store_cache: dict[str, str] | None = None
+_default_hashes_cache: dict[str, str] | None = None
 
 
 def _uploads_root() -> Path:
@@ -34,7 +37,11 @@ def _users_path() -> Path:
     return _uploads_root() / "users.json"
 
 
-_lock = threading.Lock()
+def _is_serverless() -> bool:
+    return bool(
+        (os.environ.get("VERCEL") or "").strip()
+        or (os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or "").strip()
+    )
 
 
 def normalize_identity(value: str) -> str:
@@ -68,12 +75,23 @@ def _parse_password_overrides() -> dict[str, str]:
 
 
 def _default_hashes() -> dict[str, str]:
+    """Generate seeded user hashes once (bcrypt is intentionally slow)."""
+    global _default_hashes_cache
+    if _default_hashes_cache is not None:
+        return dict(_default_hashes_cache)
     overrides = _parse_password_overrides()
     store: dict[str, str] = {}
     for username in DEFAULT_USERS:
         password = overrides.get(username) or username
         store[username] = generate_password_hash(password)
-    return store
+    _default_hashes_cache = store
+    return dict(store)
+
+
+def invalidate_user_cache() -> None:
+    global _store_cache
+    with _lock:
+        _store_cache = None
 
 
 def _write_users_file(store: dict[str, str]) -> None:
@@ -87,19 +105,26 @@ def _write_users_file(store: dict[str, str]) -> None:
     try:
         import gcs_storage
 
-        gcs_storage.push_users_file(path)
+        ok = gcs_storage.push_users_file(path)
+        if not ok and _is_serverless():
+            raise RuntimeError("Failed to persist users to cloud storage")
     except Exception as exc:  # noqa: BLE001
         print(f"GCS users sync failed: {exc}", flush=True)
+        if _is_serverless():
+            raise
 
 
-def _read_users_file() -> dict[str, str]:
+def _read_users_file(*, prefer_remote: bool | None = None) -> dict[str, str]:
     path = _users_path()
+    if prefer_remote is None:
+        # On serverless always pull remote when missing; otherwise keep local.
+        prefer_remote = _is_serverless() or not path.exists()
     try:
         import gcs_storage
 
-        gcs_storage.hydrate_users_file(path, prefer_remote=False)
-    except Exception:
-        pass
+        gcs_storage.hydrate_users_file(path, prefer_remote=prefer_remote)
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS users hydrate failed: {exc}", flush=True)
     if not path.exists():
         return {}
     try:
@@ -116,25 +141,44 @@ def _read_users_file() -> dict[str, str]:
         return {}
 
 
-def load_user_store() -> dict[str, str]:
+def load_user_store(*, force_refresh: bool = False) -> dict[str, str]:
+    global _store_cache
     with _lock:
+        if _store_cache is not None and not force_refresh:
+            return _store_cache
         store = _default_hashes()
-        stored = _read_users_file()
+        stored = _read_users_file(
+            prefer_remote=True if force_refresh or _is_serverless() else None
+        )
         store.update(stored)
-        # Ensure seeded users exist on disk for restarts
-        if not stored:
-            _write_users_file(store)
-        return store
+        if not stored and not path_exists_safe():
+            try:
+                _write_users_file(store)
+            except Exception as exc:  # noqa: BLE001
+                print(f"seed users write failed: {exc}", flush=True)
+        _store_cache = store
+        return _store_cache
+
+
+def path_exists_safe() -> bool:
+    try:
+        return _users_path().exists()
+    except OSError:
+        return False
 
 
 def user_exists(username: str) -> bool:
     user = normalize_identity(username)
-    return user in load_user_store()
+    if user in load_user_store():
+        return True
+    # One forced remote refresh (covers cold /tmp on Vercel after signup elsewhere).
+    store = load_user_store(force_refresh=True)
+    return user in store
 
 
 def authenticate(username: str, password: str) -> str | None:
     user = normalize_identity(username)
-    store = load_user_store()
+    store = load_user_store(force_refresh=_is_serverless())
     password_hash = store.get(user)
     if not password_hash:
         return None
@@ -157,20 +201,32 @@ def register_user(username: str, password: str) -> tuple[str | None, str | None]
         return None, "Password must be at least 4 characters"
 
     with _lock:
+        # Fresh remote merge so we don't overwrite other signups on another instance.
         store = _default_hashes()
-        store.update(_read_users_file())
+        store.update(_read_users_file(prefer_remote=True))
         if user in store:
             return None, "That email or username is already taken"
         store[user] = generate_password_hash(password)
-        _write_users_file(store)
+        try:
+            _write_users_file(store)
+        except Exception as exc:  # noqa: BLE001
+            return None, f"Could not save account: {exc}"
+        global _store_cache
+        _store_cache = store
     return user, None
 
 
 def current_user() -> str | None:
     user = session.get("user")
-    if isinstance(user, str) and user_exists(user):
+    if not isinstance(user, str):
+        return None
+    user = normalize_identity(user)
+    store = load_user_store()
+    if user in store:
         return user
-    return None
+    # Session user missing locally — refresh once from GCS.
+    store = load_user_store(force_refresh=True)
+    return user if user in store else None
 
 
 def login_required(view):
