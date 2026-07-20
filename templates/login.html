@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% if mode == 'signup' %}Sign up{% else %}Log in{% endif %} · Transcript Review</title>
+  <title>{% if mode == 'signup' %}Sign up{% else %}Log in{% endif %} · GoldenSet Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body class="login-page">
@@ -15,9 +15,9 @@
   <main class="login-shell">
     <section class="login-card">
       <div class="login-brand">
-        <p class="brand-kicker">Golden Set</p>
-        <h1>Transcript Review</h1>
-        <p class="login-copy">Listen, correct, and verify call transcripts with your team.</p>
+        <p class="brand-kicker">GoldenSet Studio</p>
+        <h1>{% if mode == 'signup' %}Create account{% else %}Welcome back{% endif %}</h1>
+        <p class="login-copy">Voice AI Evaluation Platform — review, correct, and verify call transcripts with your team.</p>
       </div>
 
       <div class="auth-tabs" role="tablist">

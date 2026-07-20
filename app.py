@@ -29,6 +29,8 @@ from stt_runner import (
     sarvam_path as dataset_sarvam_path,
     start_stt_job,
 )
+
+
 from transcript_utils import (
     align_stt_segments,
     clean_saved_messages,
@@ -43,8 +45,6 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 
 DATASET_META = (
     {"id": "indiamart", "label": "IndiaMART"},
-    {"id": "spinny", "label": "Spinny"},
-    {"id": "amc", "label": "AMC"},
     {"id": "abhfl", "label": "ABHFL"},
     {"id": "amber", "label": "Amber"},
 )
@@ -125,6 +125,7 @@ def save_corrections(dataset: str) -> None:
         call_order[dataset],
     )
     phrase_cache.pop(dataset, None)
+    # Expand into per-call transcript_final.json under gs://…/<Agent>/<call_id>/
     gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "corrected_transcripts.json")
 
 
@@ -220,8 +221,14 @@ def normalize_uploaded_payload(payload) -> list[dict]:
     raise ValueError("JSON must be an object keyed by call ID or an array of calls")
 
 
-def apply_uploaded_calls(dataset: str, payload) -> int:
+def apply_uploaded_calls(dataset: str, payload, *, replace: bool = False) -> int:
     items = normalize_uploaded_payload(payload)
+    if replace:
+        calls_by_id[dataset] = {}
+        call_order[dataset] = []
+        corrections[dataset] = {}
+        sarvam_by_dataset[dataset] = {}
+        phrase_cache.pop(dataset, None)
     count = 0
     for item in items:
         call_id = oid(
@@ -246,9 +253,11 @@ def apply_uploaded_calls(dataset: str, payload) -> int:
             item.get("public_url")
             or item.get("url")
             or item.get("recordingUrl")
+            or item.get("recordings")
+            or item.get("human")
             or ""
         )
-        recording_url = item.get("recordingUrl") or ""
+        recording_url = item.get("recordingUrl") or item.get("recordings") or ""
 
         stt_messages = item.get("stt_messages") or item.get("sarvam_messages")
         stt_segments = item.get("segments") or item.get("stt_segments")
@@ -284,6 +293,7 @@ def persist_uploaded_calls(dataset: str, payload) -> None:
     path = upload_calls_path(dataset)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False)
+    # Writes meta + transcript_original (+ queues human/agent/recording audio)
     gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "calls.json")
 
 
@@ -307,6 +317,20 @@ def load_uploaded_dataset(dataset: str) -> None:
 
 
 def load_indiamart() -> None:
+    # Prefer an explicit upload over bootstrapped all_data (full replace).
+    upload_path = upload_calls_path("indiamart")
+    if upload_path.exists():
+        load_corrections_file("indiamart", corrections_path_for("indiamart"))
+        load_uploaded_dataset("indiamart")
+        sarvam_upload = dataset_sarvam_path(UPLOADS_DIR, "indiamart")
+        if sarvam_upload.exists():
+            try:
+                with sarvam_upload.open(encoding="utf-8") as handle:
+                    sarvam_by_dataset["indiamart"] = json.load(handle)
+            except json.JSONDecodeError:
+                sarvam_by_dataset["indiamart"] = {}
+        return
+
     csv_path = first_existing(
         BASE_DIR / "indiamart_final63_public_urls.csv",
         ALL_DATA_DIR / "indiamart_final63_public_urls.csv",
@@ -443,10 +467,9 @@ def reload_sarvam_transcripts(dataset: str | None = None) -> None:
         sarvam_by_dataset[name] = merged
 
 
-def get_stt_messages(
-    dataset: str, call_id: str, original_messages: list[dict]
+def _messages_from_stt_entry(
+    entry: dict | None, original_messages: list[dict]
 ) -> list[dict] | None:
-    entry = sarvam_by_dataset.get(dataset, {}).get(call_id)
     if not entry:
         return None
 
@@ -464,6 +487,13 @@ def get_stt_messages(
     if messages:
         return messages
     return None
+
+
+def get_stt_messages(
+    dataset: str, call_id: str, original_messages: list[dict]
+) -> list[dict] | None:
+    entry = sarvam_by_dataset.get(dataset, {}).get(call_id)
+    return _messages_from_stt_entry(entry, original_messages)
 
 
 def get_turn_timings(dataset: str, call_id: str, turn_count: int) -> list[dict]:
@@ -490,9 +520,13 @@ def get_turn_timings(dataset: str, call_id: str, turn_count: int) -> list[dict]:
 def review_status(saved: dict | None) -> str:
     if not saved:
         return "pending"
+    if saved.get("unfit"):
+        return "unfit"
     if saved.get("verifiedBy") and saved.get("verifiedAt"):
         return "verified"
-    return "edited"
+    if saved.get("messages") or saved.get("editedBy"):
+        return "edited"
+    return "pending"
 
 
 def build_call_payload(dataset: str, call_id: str) -> dict:
@@ -519,7 +553,11 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
             original_messages, stt_messages, has_stt=has_stt
         )
 
-    turn_count = max(len(original_messages), len(final_messages), len(stt_messages or []))
+    turn_count = max(
+        len(original_messages),
+        len(final_messages),
+        len(stt_messages or []),
+    )
     timings = get_turn_timings(dataset, call_id, turn_count)
 
     return {
@@ -538,6 +576,9 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         "editedBy": (saved or {}).get("editedBy") or "",
         "verifiedBy": (saved or {}).get("verifiedBy") or "",
         "verifiedAt": (saved or {}).get("verifiedAt"),
+        "unfitBy": (saved or {}).get("unfitBy") or "",
+        "unfitAt": (saved or {}).get("unfitAt"),
+        "unfitReason": (saved or {}).get("unfitReason") or "",
         "updatedAt": saved.get("updatedAt") if saved else None,
         "sttGeneratedAt": sarvam_by_dataset.get(dataset, {})
         .get(call_id, {})
@@ -803,7 +844,8 @@ def stats():
     verified = sum(
         1 for cid in order if review_status(dataset_corrections.get(cid)) == "verified"
     )
-    pending = len(order) - edited - verified
+    unfit = sum(1 for cid in order if review_status(dataset_corrections.get(cid)) == "unfit")
+    pending = len(order) - edited - verified - unfit
     sarvam_store = sarvam_by_dataset.get(dataset, {})
     stt_generated = sum(1 for call_id in order if call_id in sarvam_store)
 
@@ -822,6 +864,7 @@ def stats():
             "total": len(order),
             "edited": edited,
             "verified": verified,
+            "unfit": unfit,
             "pending": pending,
             "sttGenerated": stt_generated,
             "sttProgress": progress,
@@ -873,6 +916,12 @@ def list_calls():
             cid
             for cid in filtered
             if review_status(dataset_corrections.get(cid)) == "verified"
+        ]
+    elif status == "unfit":
+        filtered = [
+            cid
+            for cid in filtered
+            if review_status(dataset_corrections.get(cid)) == "unfit"
         ]
     elif status == "stt":
         filtered = [cid for cid in filtered if cid in sarvam_store]
@@ -951,6 +1000,10 @@ def save_correct(call_id: str):
         # Re-saving clears verification so a second person must re-verify
         "verifiedBy": "",
         "verifiedAt": None,
+        # Saving a final also clears unfit
+        "unfit": False,
+        "unfitBy": "",
+        "unfitAt": None,
     }
     save_corrections(dataset)
 
@@ -973,6 +1026,8 @@ def verify_correct(call_id: str):
     saved = corrections[dataset].get(call_id)
     if not saved:
         return jsonify({"error": "Save the final transcript before verifying"}), 400
+    if saved.get("unfit"):
+        return jsonify({"error": "Clear unfit status before verifying"}), 400
 
     verifier = current_user()
     if not verifier:
@@ -995,6 +1050,64 @@ def verify_correct(call_id: str):
             "verifiedBy": verifier,
             "verifiedAt": saved["verifiedAt"],
             "status": "verified",
+        }
+    )
+
+
+@app.route("/api/calls/<call_id>/unfit", methods=["POST", "DELETE"])
+def mark_unfit(call_id: str):
+    """Mark or clear a call as unfit for the golden set."""
+    dataset = resolve_dataset()
+    if call_id not in calls_by_id[dataset]:
+        return jsonify({"error": "Call not found"}), 404
+
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+
+    existing = corrections[dataset].get(call_id) or {}
+
+    if request.method == "DELETE":
+        if not existing:
+            return jsonify({"ok": True, "status": "pending"})
+        existing.pop("unfit", None)
+        existing.pop("unfitBy", None)
+        existing.pop("unfitAt", None)
+        # Drop empty unfit-only records
+        if not existing.get("messages") and not existing.get("editedBy"):
+            corrections[dataset].pop(call_id, None)
+            save_corrections(dataset)
+            return jsonify({"ok": True, "status": "pending"})
+        corrections[dataset][call_id] = existing
+        save_corrections(dataset)
+        return jsonify({"ok": True, "status": review_status(existing)})
+
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get("reason") or "").strip()
+
+    entry = {
+        **existing,
+        "number": recording_number(dataset, call_id),
+        "callLogId": call_id,
+        "messages": existing.get("messages") or [],
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "unfit": True,
+        "unfitBy": user,
+        "unfitAt": datetime.now(timezone.utc).isoformat(),
+        "unfitReason": reason,
+        "verifiedBy": "",
+        "verifiedAt": None,
+    }
+    corrections[dataset][call_id] = entry
+    save_corrections(dataset)
+
+    return jsonify(
+        {
+            "ok": True,
+            "status": "unfit",
+            "unfitBy": user,
+            "unfitAt": entry["unfitAt"],
+            "unfitReason": reason,
         }
     )
 
@@ -1029,12 +1142,25 @@ def upload_dataset_json():
         return jsonify({"error": "Provide a JSON file or JSON body"}), 400
 
     try:
-        count = apply_uploaded_calls(dataset, payload)
+        count = apply_uploaded_calls(dataset, payload, replace=True)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     persist_uploaded_calls(dataset, payload)
+    # Clear prior finals / STT so the tab only has the new originals.
     ensure_dataset_dirs(dataset)
+    corrections_path = corrections_path_for(dataset)
+    with corrections_path.open("w", encoding="utf-8") as handle:
+        json.dump({}, handle)
+    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "corrected_transcripts.json")
+    sarvam_path = dataset_sarvam_path(UPLOADS_DIR, dataset)
+    with sarvam_path.open("w", encoding="utf-8") as handle:
+        json.dump({}, handle)
+    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "sarvam_transcripts.json")
+    progress_path = UPLOADS_DIR / dataset / "stt_progress.json"
+    with progress_path.open("w", encoding="utf-8") as handle:
+        json.dump({}, handle)
+    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "stt_progress.json")
 
     return jsonify(
         {

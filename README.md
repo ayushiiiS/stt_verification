@@ -6,47 +6,51 @@ A local Flask web app for reviewing call transcripts across multiple clients. Th
 
 Uploaded calls, saved/verified finals, Sarvam STT output, progress, and users are synced to GCS so data survives deploys.
 
-Default bucket: **`gotldenset`**
+Default bucket: **`goldenset1`**
 
 Layout:
 
 ```
-gs://gotldenset/
+gs://goldenset1/
   users.json
-  indiamart/
-    calls.json
-    corrected_transcripts.json
-    sarvam_transcripts.json
-    stt_progress.json
-  spinny/
-    ...
-  amc/
-  abhfl/
-  amber/
+  IndiaMART/<call_id>/{meta,recording,human,agent,transcript_*}
+  ABHFL/<call_id>/...
+  Amber/<call_id>/...
 ```
-
-Each client tab maps to a folder with the same name.
 
 Env:
 
 ```bash
-GCS_BUCKET=gotldenset
+GCS_BUCKET=goldenset1
 GCS_LOCATION=asia-south1
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 # Or for Vercel / serverless:
 GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 ```
 
-On startup the app pulls these objects into local `uploads/`. Every save/upload/STT/user write also pushes back to the matching GCS object. If the bucket does not exist and credentials allow it, the app creates `gotldenset`.
+On startup the app hydrates local `uploads/` from GCS. Every save/upload/STT/user write pushes back. Check status at `/api/storage` (while logged in).
 
-Check status at `/api/storage` (while logged in).
+## Deploy (Vercel)
+
+```bash
+npx vercel login
+npx vercel link
+npx vercel env add GCS_BUCKET
+npx vercel env add GCS_LOCATION
+npx vercel env add GOOGLE_SERVICE_ACCOUNT_JSON   # paste full SA JSON or base64
+npx vercel env add SARVAM_API_KEY
+npx vercel env add FLASK_SECRET_KEY
+npx vercel --prod
+```
+
+Required production env vars: `GCS_BUCKET`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `FLASK_SECRET_KEY`. Optional: `SARVAM_API_KEY`, `AUTH_PASSWORDS`, `GCS_LOCATION`.
+
+**Note:** Sarvam STT jobs are a poor fit for Vercel serverless timeouts; use the UI for review/edit/verify. Run STT on an always-on host when needed.
 
 ## Authentication
 
 Open `/login` to **Log in** or **Sign up**.
 
-Seeded team accounts still work by default (password = username unless overridden):
-`ayushi`, `kriti`, `akash`, `yash`.
 
 New accounts created via Sign up are stored in `uploads/users.json`.
 

@@ -3,135 +3,228 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Transcript Review</title>
+  <title>GoldenSet Studio · Voice AI Evaluation</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <p class="brand-kicker">Golden Set</p>
-      <h1>Call Transcript Review</h1>
-      <p class="subtitle" id="subtitle">Upload transcripts, run Sarvam STT, edit finals, verify</p>
-    </div>
-    <div class="topbar-right">
-      <div class="user-chip">
-        <span class="user-chip-label">Signed in</span>
-        <strong id="currentUser">{{ current_user }}</strong>
-        <a class="btn secondary logout-btn" href="/logout">Log out</a>
+  <div class="app-shell">
+    <header class="topnav" role="banner">
+      <div class="topnav-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M4 12a8 8 0 0 1 8-8v0a8 8 0 0 1 8 8v0a8 8 0 0 1-8 8v0a8 8 0 0 1-8-8z" stroke="currentColor" stroke-width="1.75"/>
+            <path d="M8 12c0-2.2 1.8-4 4-4v8c-2.2 0-4-1.8-4-4z" fill="currentColor"/>
+            <path d="M12 8c2.2 0 4 1.8 4 4s-1.8 4-4 4V8z" fill="currentColor" opacity=".35"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1 class="brand-title">GoldenSet Studio</h1>
+          <p class="brand-subtitle" id="subtitle">Voice AI Evaluation Platform</p>
+        </div>
       </div>
-      <div class="stats" id="stats"></div>
-    </div>
-  </header>
 
-  <nav class="dataset-tabs" id="datasetTabs">
-    {% for ds in datasets %}
-    <button type="button" class="dataset-tab {% if loop.first %}active{% endif %}" data-dataset="{{ ds.id }}">
-      {{ ds.label }} <span class="tab-count" id="count-{{ ds.id }}">{{ totals[ds.id] }}</span>
-    </button>
-    {% endfor %}
-  </nav>
+      <nav class="dataset-tabs" id="datasetTabs" aria-label="Workspaces">
+        {% for ds in datasets %}
+        <button type="button" class="dataset-tab {% if loop.first %}active{% endif %}" data-dataset="{{ ds.id }}">
+          <span class="tab-label">{{ ds.label }}</span>
+          <span class="tab-count" id="count-{{ ds.id }}">{{ totals[ds.id] }}</span>
+        </button>
+        {% endfor %}
+      </nav>
 
-  <div class="toolbar">
-    <div class="upload-panel">
-      <label class="btn secondary upload-btn">
-        Upload JSON
-        <input type="file" id="uploadInput" accept=".json,application/json" hidden />
-      </label>
-      <button type="button" class="btn accent" id="startSttBtn">Start Sarvam STT</button>
-      <button type="button" class="btn secondary" id="exportVerifiedBtn">Export verified</button>
-      <span class="upload-hint" id="uploadHint">JSON with transcripts + public URLs</span>
-    </div>
-    <div class="progress-panel" id="progressPanel">
-      <div class="progress-header">
-        <span class="progress-title">Sarvam STT</span>
-        <span class="progress-meta" id="progressMeta">—</span>
+      <div class="topnav-right">
+        <div class="progress-panel" id="progressPanel" title="Sarvam STT progress">
+          <div class="progress-header">
+            <span class="progress-title">STT Progress</span>
+            <span class="progress-meta" id="progressMeta">—</span>
+          </div>
+          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+
+        <button type="button" class="icon-ghost" id="notifBtn" title="Pending reviews" aria-label="Notifications">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5"/>
+            <path d="M9.5 17a2.5 2.5 0 0 0 5 0"/>
+          </svg>
+          <span class="notif-dot hidden" id="notifDot"></span>
+        </button>
+
+        <div class="menu-wrap">
+          <button type="button" class="icon-ghost" id="settingsBtn" title="Keyboard shortcuts" aria-label="Settings" aria-expanded="false" aria-controls="settingsMenu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+            </svg>
+          </button>
+          <div class="dropdown-panel hidden" id="settingsMenu" role="menu">
+            <p class="dropdown-title">Keyboard shortcuts</p>
+            <div class="shortcut-row"><span>Play / Pause</span><kbd>Space</kbd></div>
+            <div class="shortcut-row"><span>Seek ±10s</span><kbd>←</kbd><kbd>→</kbd></div>
+            <div class="shortcut-row"><span>Save final</span><kbd>⌘</kbd><kbd>S</kbd></div>
+            <div class="shortcut-row"><span>Transliterate</span><kbd>Tab</kbd></div>
+          </div>
+        </div>
+
+        <div class="user-chip" title="Workspace user">
+          <span class="avatar avatar-sm" id="userAvatar" aria-hidden="true">{{ current_user[:1]|upper }}</span>
+          <div class="user-chip-meta">
+            <span class="user-chip-label">Workspace</span>
+            <strong id="currentUser">{{ current_user }}</strong>
+          </div>
+          <a class="btn ghost btn-sm logout-btn" href="/logout">Log out</a>
+        </div>
       </div>
-      <div class="progress-track">
-        <div class="progress-fill" id="progressFill"></div>
+    </header>
+
+    <section class="metrics-strip" id="stats" aria-label="Progress dashboard"></section>
+
+    <div class="toolbar">
+      <div class="upload-panel">
+        <label class="btn secondary upload-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          Upload JSON
+          <input type="file" id="uploadInput" accept=".json,application/json" hidden />
+        </label>
+        <button type="button" class="btn accent" id="startSttBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg>
+          Start Sarvam STT
+        </button>
+        <button type="button" class="btn secondary" id="exportVerifiedBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v12M8 12l4 4 4-4"/><path d="M4 20h16"/></svg>
+          Export verified
+        </button>
+        <span class="upload-hint" id="uploadHint">JSON with transcripts + public URLs</span>
       </div>
     </div>
+
+    <main class="layout">
+      <aside class="sidebar" aria-label="Review queue">
+        <div class="sidebar-header">
+          <h2 class="sidebar-title">Review queue</h2>
+          <div class="queue-stats" id="queueStats"></div>
+        </div>
+
+        <div class="sidebar-controls">
+          <div class="search-field">
+            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+            <input type="search" id="search" placeholder="Search # or call ID…" aria-label="Search conversations" />
+          </div>
+          <div class="filter-row">
+            <select id="statusFilter" aria-label="Filter by status">
+              <option value="all">All statuses</option>
+              <option value="stt">Has STT</option>
+              <option value="no_stt">No STT</option>
+              <option value="pending">Final not saved</option>
+              <option value="edited">Final saved</option>
+              <option value="verified">Verified</option>
+              <option value="unfit">Unfit</option>
+            </select>
+            <select id="sortSelect" aria-label="Sort conversations">
+              <option value="number">Sort: #</option>
+              <option value="status">Sort: Status</option>
+              <option value="id">Sort: ID</option>
+            </select>
+          </div>
+        </div>
+
+        <ul class="call-list" id="callList"></ul>
+        <div class="pagination" id="pagination"></div>
+      </aside>
+
+      <section class="workspace" id="workspace">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-card">
+            <div class="empty-icon" aria-hidden="true">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M4 6h16M4 12h10M4 18h14"/>
+                <circle cx="18" cy="12" r="2"/>
+              </svg>
+            </div>
+            <h3>Ready to review</h3>
+            <p>Upload a JSON file with transcripts and audio URLs, then start Sarvam STT for this workspace.</p>
+          </div>
+        </div>
+
+        <div class="call-detail hidden" id="callDetail">
+          <div class="sticky-top">
+            <div class="detail-header">
+              <div class="detail-heading">
+                <div class="call-title-row">
+                  <h2 id="callId" class="call-title"></h2>
+                  <span id="saveStatusBadge" class="badge-status hidden"></span>
+                </div>
+                <div class="meta-chips" id="callMeta"></div>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn secondary" id="prevCallBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                  Previous
+                </button>
+                <button type="button" class="btn secondary" id="nextCallBtn">
+                  Next
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+                <button type="button" class="btn ghost" id="resetBtn">Reset</button>
+                <button type="button" class="btn danger" id="unfitBtn">
+                  Mark unfit
+                </button>
+                <button type="button" class="btn primary" id="saveBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                  Save final
+                </button>
+                <button type="button" class="btn verify" id="verifyBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                  Verify
+                </button>
+              </div>
+            </div>
+
+            <div class="audio-panel">
+              <div id="waveform" class="waveform"></div>
+              <div class="audio-controls">
+                <button type="button" class="btn play-btn" id="playPauseBtn" title="Play/Pause (Space)" aria-label="Play or pause">▶</button>
+                <div class="time-stack">
+                  <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+                  <span class="time-remaining" id="timeRemaining">−0:00</span>
+                </div>
+                <label class="speed-control">
+                  <span>Speed</span>
+                  <select id="speedSelect" aria-label="Playback speed">
+                    <option value="0.75">0.75×</option>
+                    <option value="1" selected>1×</option>
+                    <option value="1.25">1.25×</option>
+                    <option value="1.5">1.5×</option>
+                    <option value="1.75">1.75×</option>
+                    <option value="2">2×</option>
+                  </select>
+                </label>
+                <label class="volume-control" title="Volume">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+                  <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" aria-label="Volume" />
+                </label>
+                <span class="sync-hint">Space play/pause · ←/→ ±10s · click a turn to seek</span>
+              </div>
+              <audio id="player" preload="metadata" class="hidden-audio"></audio>
+            </div>
+          </div>
+
+          <div class="transcript-help">
+            Final starts as a draft (not saved). Press <kbd>Tab</kbd> on a Latin Hindi word to pick देवनागरी or keep Latin.
+          </div>
+          <div class="transcript-grid" id="transcriptGrid"></div>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <main class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-controls">
-        <input type="search" id="search" placeholder="Search # or call ID…" />
-        <select id="statusFilter">
-          <option value="all">All statuses</option>
-          <option value="stt">Has STT</option>
-          <option value="no_stt">No STT</option>
-          <option value="pending">Final not saved</option>
-          <option value="edited">Final saved</option>
-          <option value="verified">Verified</option>
-        </select>
-      </div>
-      <ul class="call-list" id="callList"></ul>
-      <div class="pagination" id="pagination"></div>
-    </aside>
-
-    <section class="workspace" id="workspace">
-      <div class="empty-state" id="emptyState">
-        <div class="empty-card">
-          <h3>Ready to review</h3>
-          <p>Upload a JSON file with transcripts and audio URLs, then start Sarvam STT for this tab.</p>
-        </div>
-      </div>
-
-      <div class="call-detail hidden" id="callDetail">
-        <div class="sticky-top">
-          <div class="detail-header">
-            <div>
-              <div class="call-title-row">
-                <h2 id="callId"></h2>
-                <span id="saveStatusBadge" class="save-status hidden"></span>
-              </div>
-              <p class="meta" id="callMeta"></p>
-            </div>
-            <div class="actions">
-              <button type="button" class="btn secondary" id="prevCallBtn">Previous</button>
-              <button type="button" class="btn secondary" id="nextCallBtn">Next</button>
-              <button type="button" class="btn secondary" id="resetBtn">Reset</button>
-              <button type="button" class="btn primary" id="saveBtn">Save final</button>
-              <button type="button" class="btn verify" id="verifyBtn">Verify</button>
-            </div>
-          </div>
-
-          <div class="audio-panel">
-            <div id="waveform" class="waveform"></div>
-            <div class="audio-controls">
-              <button type="button" class="btn secondary icon-btn" id="playPauseBtn" title="Play/Pause">▶</button>
-              <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
-              <label class="speed-control">
-                Speed
-                <select id="speedSelect">
-                  <option value="0.75">0.75×</option>
-                  <option value="1" selected>1×</option>
-                  <option value="1.25">1.25×</option>
-                  <option value="1.5">1.5×</option>
-                  <option value="1.75">1.75×</option>
-                  <option value="2">2×</option>
-                </select>
-              </label>
-              <span class="sync-hint">Space play/pause (outside editor) · ←/→ ±10s · click a turn to seek</span>
-            </div>
-            <audio id="player" preload="metadata" class="hidden-audio"></audio>
-          </div>
-        </div>
-
-        <div class="transcript-help">
-          Final starts as a draft (not saved). Press <kbd>Tab</kbd> on a Latin Hindi word to pick देवनागरी or keep Latin.
-        </div>
-        <div class="transcript-grid" id="transcriptGrid"></div>
-      </div>
-    </section>
-  </main>
-
   <div class="suggest-popup hidden" id="suggestPopup"></div>
-  <div class="toast hidden" id="toast"></div>
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

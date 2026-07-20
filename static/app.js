@@ -1,7 +1,5 @@
 const DATASET_LABELS = {
   indiamart: "IndiaMART",
-  spinny: "Spinny",
-  amc: "AMC",
   abhfl: "ABHFL",
   amber: "Amber",
 };
@@ -12,6 +10,7 @@ const state = {
   perPage: 50,
   search: "",
   status: "all",
+  sort: "number",
   selectedId: null,
   currentCall: null,
   draft: [],
@@ -28,10 +27,12 @@ const state = {
   translitInflight: new Map(),
   translitTimer: null,
   currentUser: "",
+  lastStats: null,
 };
 
 const els = {
   stats: document.getElementById("stats"),
+  queueStats: document.getElementById("queueStats"),
   subtitle: document.getElementById("subtitle"),
   datasetTabs: document.getElementById("datasetTabs"),
   progressPanel: document.getElementById("progressPanel"),
@@ -39,6 +40,7 @@ const els = {
   progressMeta: document.getElementById("progressMeta"),
   search: document.getElementById("search"),
   statusFilter: document.getElementById("statusFilter"),
+  sortSelect: document.getElementById("sortSelect"),
   callList: document.getElementById("callList"),
   pagination: document.getElementById("pagination"),
   emptyState: document.getElementById("emptyState"),
@@ -50,13 +52,16 @@ const els = {
   waveform: document.getElementById("waveform"),
   playPauseBtn: document.getElementById("playPauseBtn"),
   timeDisplay: document.getElementById("timeDisplay"),
+  timeRemaining: document.getElementById("timeRemaining"),
   speedSelect: document.getElementById("speedSelect"),
+  volumeSlider: document.getElementById("volumeSlider"),
   transcriptGrid: document.getElementById("transcriptGrid"),
   prevCallBtn: document.getElementById("prevCallBtn"),
   nextCallBtn: document.getElementById("nextCallBtn"),
   saveBtn: document.getElementById("saveBtn"),
   resetBtn: document.getElementById("resetBtn"),
   verifyBtn: document.getElementById("verifyBtn"),
+  unfitBtn: document.getElementById("unfitBtn"),
   uploadInput: document.getElementById("uploadInput"),
   uploadHint: document.getElementById("uploadHint"),
   startSttBtn: document.getElementById("startSttBtn"),
@@ -64,6 +69,10 @@ const els = {
   currentUser: document.getElementById("currentUser"),
   suggestPopup: document.getElementById("suggestPopup"),
   toast: document.getElementById("toast"),
+  settingsBtn: document.getElementById("settingsBtn"),
+  settingsMenu: document.getElementById("settingsMenu"),
+  notifBtn: document.getElementById("notifBtn"),
+  notifDot: document.getElementById("notifDot"),
 };
 
 state.currentUser = (els.currentUser?.textContent || "").trim();
@@ -80,11 +89,79 @@ function apiUrl(path, extra = {}) {
   return `${path}?${datasetParams(extra)}`;
 }
 
-function showToast(message) {
+function showToast(message, tone = "") {
   els.toast.textContent = message;
-  els.toast.classList.remove("hidden");
+  els.toast.classList.remove("hidden", "success", "error");
+  if (tone) els.toast.classList.add(tone);
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => els.toast.classList.add("hidden"), 2800);
+  showToast.timer = setTimeout(() => {
+    els.toast.classList.add("hidden");
+    els.toast.classList.remove("success", "error");
+  }, 2800);
+}
+
+function updateTimeDisplays(current, duration) {
+  const remaining = Math.max(0, (duration || 0) - (current || 0));
+  els.timeDisplay.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+  if (els.timeRemaining) {
+    els.timeRemaining.textContent = `−${formatTime(remaining)}`;
+  }
+}
+
+function detectLanguageLabel() {
+  const sample = state.draft.map((m) => m.content || m.originalContent || "").join(" ");
+  if (!sample.trim()) return "—";
+  const hasDevanagari = /[\u0900-\u097F]/.test(sample);
+  const hasLatin = /[A-Za-z]/.test(sample);
+  if (hasDevanagari && hasLatin) return "hi / en";
+  if (hasDevanagari) return "hi-IN";
+  if (hasLatin) return "en";
+  return "—";
+}
+
+function callDurationLabel(item) {
+  if (item.duration != null && Number.isFinite(Number(item.duration))) {
+    return formatTime(Number(item.duration));
+  }
+  return null;
+}
+
+function queueProgressPercent(item) {
+  if (item.status === "verified") return 100;
+  if (item.status === "edited") return 66;
+  if (item.status === "unfit") return 33;
+  if (item.hasStt) return 33;
+  return 0;
+}
+
+function sortCallItems(items) {
+  const sorted = [...items];
+  const rank = { pending: 0, edited: 1, verified: 2, unfit: -1 };
+  if (state.sort === "status") {
+    sorted.sort(
+      (a, b) =>
+        (rank[a.status] ?? 0) - (rank[b.status] ?? 0) ||
+        (a.number || 0) - (b.number || 0)
+    );
+  } else if (state.sort === "id") {
+    sorted.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  } else {
+    sorted.sort((a, b) => (a.number || 0) - (b.number || 0));
+  }
+  return sorted;
+}
+
+function autoResizeTextarea(textarea) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.max(120, textarea.scrollHeight)}px`;
+}
+
+function updateCharCount(textarea) {
+  const index = textarea?.dataset?.index;
+  if (index == null) return;
+  const counter = els.transcriptGrid.querySelector(`.char-count[data-index="${index}"]`);
+  if (counter) counter.textContent = `${textarea.value.length} chars`;
 }
 
 async function fetchJSON(url, options) {
@@ -118,6 +195,7 @@ function formatTime(seconds) {
 function statusLabel(status) {
   if (status === "verified") return "Final verified";
   if (status === "edited") return "Final saved";
+  if (status === "unfit") return "Unfit";
   return "Final not saved";
 }
 
@@ -126,19 +204,81 @@ function updateDatasetChrome() {
     btn.classList.toggle("active", btn.dataset.dataset === state.dataset);
   });
   const label = DATASET_LABELS[state.dataset] || state.dataset;
-  els.subtitle.textContent = `${label} · upload JSON, edit finals, second-user verify`;
+  els.subtitle.textContent = `${label} · Voice AI Evaluation Platform`;
   els.uploadHint.textContent = `Upload into ${label}`;
 }
 
 async function loadStats(options = {}) {
   const data = await fetchJSON(apiUrl("/api/stats"));
+  state.lastStats = data;
+  const total = data.total || 0;
+  const verified = data.verified || 0;
+  const edited = data.edited || 0;
+  const pending = data.pending || 0;
+  const unfit = data.unfit || 0;
+  const reviewed = edited + verified;
+  const completion = total ? Math.round((verified / total) * 1000) / 10 : 0;
+  const sttReady = data.sttGenerated || 0;
+  const confidence = total > 0 ? Math.round((sttReady / total) * 1000) / 10 : 0;
+  const attention = pending;
+
   els.stats.innerHTML = `
-    <span class="stat-pill total">Total ${data.total}</span>
-    <span class="stat-pill stt">STT ${data.sttGenerated}/${data.total}</span>
-    <span class="stat-pill pending">Not saved ${data.pending}</span>
-    <span class="stat-pill saved">Final saved ${data.edited}</span>
-    <span class="stat-pill verified">Verified ${data.verified}</span>
+    <div class="metric-card">
+      <span class="metric-label">Total Conversations</span>
+      <span class="metric-value">${total}</span>
+    </div>
+    <div class="metric-card accent-reviewed">
+      <span class="metric-label">Reviewed</span>
+      <span class="metric-value">${reviewed}</span>
+    </div>
+    <div class="metric-card accent-verified">
+      <span class="metric-label">Verified</span>
+      <span class="metric-value">${verified}</span>
+    </div>
+    <div class="metric-card accent-pending">
+      <span class="metric-label">Pending</span>
+      <span class="metric-value">${pending}</span>
+    </div>
+    <div class="metric-card accent-unfit">
+      <span class="metric-label">Unfit</span>
+      <span class="metric-value">${unfit}</span>
+    </div>
+    <div class="metric-card accent-completion">
+      <span class="metric-label">Completion %</span>
+      <span class="metric-value">${completion}%</span>
+    </div>
+    <div class="metric-card accent-confidence">
+      <span class="metric-label">Avg. STT Coverage</span>
+      <span class="metric-value">${confidence}%</span>
+    </div>
   `;
+
+  if (els.queueStats) {
+    els.queueStats.innerHTML = `
+      <div class="queue-stat pending">
+        <span class="queue-stat-value">${pending}</span>
+        <span class="queue-stat-label">Pending</span>
+      </div>
+      <div class="queue-stat reviewed">
+        <span class="queue-stat-value">${edited}</span>
+        <span class="queue-stat-label">Reviewed</span>
+      </div>
+      <div class="queue-stat verified">
+        <span class="queue-stat-value">${verified}</span>
+        <span class="queue-stat-label">Verified</span>
+      </div>
+      <div class="queue-stat unfit">
+        <span class="queue-stat-value">${unfit}</span>
+        <span class="queue-stat-label">Unfit</span>
+      </div>
+    `;
+  }
+
+  if (els.notifDot) {
+    els.notifDot.classList.toggle("hidden", pending <= 0);
+    els.notifDot.title = `${pending} pending`;
+  }
+
   const countEl = document.getElementById(`count-${state.dataset}`);
   if (countEl) countEl.textContent = data.total;
 
@@ -168,7 +308,9 @@ async function loadStats(options = {}) {
 function updateSttButton(running) {
   if (!els.startSttBtn) return;
   els.startSttBtn.disabled = running;
-  els.startSttBtn.textContent = running ? "Sarvam STT running…" : "Start Sarvam STT";
+  els.startSttBtn.innerHTML = running
+    ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg> Sarvam STT running…`
+    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg> Start Sarvam STT`;
 }
 
 function renderSttProgress(progress, sttGenerated, total) {
@@ -208,6 +350,14 @@ function renderPagination(data) {
 }
 
 async function loadCalls() {
+  els.callList.innerHTML = `
+    <li class="skeleton-list" aria-hidden="true">
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+    </li>
+  `;
+
   const data = await fetchJSON(
     apiUrl("/api/calls", {
       page: state.page,
@@ -223,11 +373,18 @@ async function loadCalls() {
     return;
   }
 
-  els.callList.innerHTML = data.items
+  const items = sortCallItems(data.items);
+
+  els.callList.innerHTML = items
     .map((item) => {
       const sttBadge = item.hasStt
-        ? '<span class="badge stt">STT</span>'
-        : '<span class="badge stt-pending">No STT</span>';
+        ? '<span class="badge stt">Sarvam</span>'
+        : '<span class="badge stt-pending">No Sarvam</span>';
+      const duration = callDurationLabel(item);
+      const durationBadge = duration
+        ? `<span class="badge duration">${duration}</span>`
+        : "";
+      const progress = queueProgressPercent(item);
       return `
       <li>
         <button type="button" class="call-item ${item.id === state.selectedId ? "active" : ""}" data-id="${item.id}">
@@ -239,7 +396,28 @@ async function loadCalls() {
               <span class="badge ${item.status}">${statusLabel(item.status)}</span>
             </span>
           </div>
+          <div class="call-item-meta">
+            ${durationBadge}
+            <span class="badge ${
+              item.status === "verified"
+                ? "verified"
+                : item.status === "edited"
+                  ? "edited"
+                  : item.status === "unfit"
+                    ? "unfit"
+                    : "pending"
+            }">${
+              item.status === "verified"
+                ? "Verified"
+                : item.status === "edited"
+                  ? "Saved"
+                  : item.status === "unfit"
+                    ? "Unfit"
+                    : "Draft"
+            }</span>
+          </div>
           <div class="call-preview">${escapeHtml(item.preview)}</div>
+          <div class="call-item-progress" aria-hidden="true"><span style="width:${progress}%"></span></div>
         </button>
       </li>
     `;
@@ -597,7 +775,7 @@ function destroyWaveform() {
   state.lastActiveTurn = -1;
   els.waveform.innerHTML = "";
   els.playPauseBtn.textContent = "▶";
-  els.timeDisplay.textContent = "0:00 / 0:00";
+  updateTimeDisplays(0, 0);
 }
 
 function scrollActiveTurnIntoView(index) {
@@ -615,7 +793,7 @@ function syncHighlight() {
   if (!state.wavesurfer) return;
   const t = state.wavesurfer.getCurrentTime();
   const duration = state.wavesurfer.getDuration() || 0;
-  els.timeDisplay.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
+  updateTimeDisplays(t, duration);
 
   let active = -1;
   state.draft.forEach((msg, index) => {
@@ -648,13 +826,13 @@ function initWaveform(url) {
   state.wavesurfer = WaveSurfer.create({
     container: els.waveform,
     url,
-    height: 72,
-    waveColor: "#94a3b8",
-    progressColor: "#2563eb",
-    cursorColor: "#1d4ed8",
+    height: 48,
+    waveColor: "#cbd5e1",
+    progressColor: "#0f766e",
+    cursorColor: "#134e4a",
     cursorWidth: 2,
     barWidth: 2,
-    barGap: 1,
+    barGap: 2,
     barRadius: 2,
     normalize: true,
     interact: true,
@@ -662,9 +840,12 @@ function initWaveform(url) {
 
   const rate = Number(els.speedSelect.value) || 1;
   state.wavesurfer.setPlaybackRate(rate);
+  const volume = Number(els.volumeSlider?.value);
+  if (Number.isFinite(volume)) state.wavesurfer.setVolume(volume);
 
   state.wavesurfer.on("ready", () => {
-    els.timeDisplay.textContent = `0:00 / ${formatTime(state.wavesurfer.getDuration())}`;
+    updateTimeDisplays(0, state.wavesurfer.getDuration());
+    updateMeta();
   });
 
   state.wavesurfer.on("play", () => {
@@ -703,55 +884,70 @@ function seekToTurn(index) {
 
 function renderTranscript() {
   hideSuggestions();
+
   els.transcriptGrid.innerHTML = state.draft
-    .map((msg, index) => {
-      const originalContent = msg.originalContent?.trim()
-        ? msg.originalContent
-        : "—";
-      const sttContent = msg.sttContent?.trim()
-        ? msg.sttContent
-        : msg.added
-          ? "—"
-          : "Not generated yet";
-      const timeLabel =
-        msg.start != null && msg.end != null
-          ? `${formatTime(msg.start)}–${formatTime(msg.end)}`
-          : "no timing";
-      return `
+      .map((msg, index) => {
+        const originalContent = msg.originalContent?.trim()
+          ? msg.originalContent
+          : "—";
+        const sttContent = msg.sttContent?.trim()
+          ? msg.sttContent
+          : msg.added
+            ? "—"
+            : "Not generated yet";
+        const timeLabel =
+          msg.start != null && msg.end != null
+            ? `${formatTime(msg.start)}–${formatTime(msg.end)}`
+            : "no timing";
+        const avatarLetter = msg.role === "user" ? "U" : "A";
+        return `
         <div class="turn-block" data-index="${index}">
           <article class="message-card" data-index="${index}">
             <div class="message-header">
-              <label class="role-label">
-                <span class="sr-only">Role</span>
-                <select class="role-select ${msg.role}" data-index="${index}">
-                  <option value="assistant" ${msg.role === "assistant" ? "selected" : ""}>assistant</option>
-                  <option value="user" ${msg.role === "user" ? "selected" : ""}>user</option>
-                </select>
-              </label>
+              <div class="message-speaker">
+                <span class="avatar avatar-md ${msg.role}" aria-hidden="true">${avatarLetter}</span>
+                <label class="role-label">
+                  <span class="sr-only">Role</span>
+                  <select class="role-select ${msg.role}" data-index="${index}">
+                    <option value="assistant" ${msg.role === "assistant" ? "selected" : ""}>ASSISTANT</option>
+                    <option value="user" ${msg.role === "user" ? "selected" : ""}>USER</option>
+                  </select>
+                </label>
+              </div>
               <div class="message-header-actions">
                 <button type="button" class="timing-chip" data-seek="${index}" title="Seek audio to this turn">${timeLabel}</button>
                 <span class="message-type">${msg.added ? "added turn" : "transcript"}</span>
-                <button type="button" class="delete-turn-btn" data-index="${index}" title="Delete this turn" ${state.draft.length <= 1 ? "disabled" : ""}>Delete</button>
+                <button type="button" class="icon-action collapse-turn-btn" data-index="${index}" title="Collapse turn" aria-label="Collapse turn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <button type="button" class="icon-action danger delete-turn-btn" data-index="${index}" title="Delete this turn" aria-label="Delete turn" ${state.draft.length <= 1 ? "disabled" : ""}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+                </button>
               </div>
             </div>
-            <div>
-              <div class="column-label">Original</div>
-              <div class="original-text">${escapeHtml(originalContent)}</div>
-            </div>
-            <div>
-              <div class="column-label">Sarvam STT</div>
-              <div class="stt-text">${escapeHtml(sttContent)}</div>
-            </div>
-            <div class="final-col">
-              <div class="column-label">Final</div>
-              <textarea class="final-input" data-index="${index}" rows="3">${escapeHtml(msg.content)}</textarea>
+            <div class="message-body">
+              <div class="col-card original">
+                <div class="column-label">Original</div>
+                <div class="original-text">${escapeHtml(originalContent)}</div>
+              </div>
+              <div class="col-card sarvam">
+                <div class="column-label">Sarvam</div>
+                <div class="stt-text">${escapeHtml(sttContent)}</div>
+              </div>
+              <div class="col-card final final-col">
+                <div class="column-label">
+                  <span>Final</span>
+                  <span class="char-count" data-index="${index}">${(msg.content || "").length} chars</span>
+                </div>
+                <textarea class="final-input" data-index="${index}" rows="4" placeholder="Edit the final transcript…">${escapeHtml(msg.content)}</textarea>
+              </div>
             </div>
           </article>
           <button type="button" class="add-turn-btn" data-after="${index}" title="Add turn after this">+</button>
         </div>
       `;
-    })
-    .join("");
+      })
+      .join("");
 
   els.transcriptGrid.querySelectorAll(".role-select").forEach((select) => {
     select.onchange = () => {
@@ -759,6 +955,12 @@ function renderTranscript() {
       state.draft[index].role = select.value;
       select.classList.remove("user", "assistant");
       select.classList.add(select.value);
+      const avatar = select.closest(".message-speaker")?.querySelector(".avatar");
+      if (avatar) {
+        avatar.classList.remove("user", "assistant");
+        avatar.classList.add(select.value);
+        avatar.textContent = select.value === "user" ? "U" : "A";
+      }
       updateMeta();
     };
   });
@@ -773,6 +975,19 @@ function renderTranscript() {
       state.draft.splice(Number(btn.dataset.index), 1);
       renderTranscript();
       updateMeta();
+    };
+  });
+
+  els.transcriptGrid.querySelectorAll(".collapse-turn-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const block = btn.closest(".turn-block");
+      if (!block) return;
+      const collapsed = block.classList.toggle("collapsed");
+      btn.setAttribute("aria-label", collapsed ? "Expand turn" : "Collapse turn");
+      btn.title = collapsed ? "Expand turn" : "Collapse turn";
+      btn.innerHTML = collapsed
+        ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg>`
+        : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
     };
   });
 
@@ -803,8 +1018,14 @@ function renderTranscript() {
   });
 
   els.transcriptGrid.querySelectorAll(".final-input").forEach((textarea) => {
+    autoResizeTextarea(textarea);
+    updateCharCount(textarea);
     textarea.addEventListener("keydown", handleFinalKeydown);
-    textarea.addEventListener("input", handleFinalInput);
+    textarea.addEventListener("input", (event) => {
+      handleFinalInput(event);
+      autoResizeTextarea(textarea);
+      updateCharCount(textarea);
+    });
     textarea.addEventListener("blur", () => {
       setTimeout(hideSuggestions, 150);
     });
@@ -842,8 +1063,16 @@ function saveStatusInfo() {
   }
 
   const dirty = isDraftDirty();
-  const persisted = Boolean(call.edited || call.status === "edited" || call.status === "verified");
+  const persisted = Boolean(
+    call.edited ||
+      call.status === "edited" ||
+      call.status === "verified" ||
+      call.status === "unfit"
+  );
 
+  if (call.status === "unfit" && !dirty) {
+    return { label: "Marked unfit", className: "unfit", dirty: false, persisted: true };
+  }
   if (call.status === "verified" && !dirty) {
     return { label: "Final verified", className: "verified", dirty: false, persisted: true };
   }
@@ -875,17 +1104,17 @@ function updateSaveStatus() {
 
   const info = saveStatusInfo();
   els.saveStatusBadge.textContent = info.label;
-  els.saveStatusBadge.className = `save-status ${info.className}`;
+  els.saveStatusBadge.className = `badge-status ${info.className}`;
   els.saveStatusBadge.classList.remove("hidden");
 
   if (info.dirty) {
-    els.saveBtn.textContent = "Save changes";
+    els.saveBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> Save changes`;
     els.saveBtn.classList.add("needs-save");
   } else if (info.persisted) {
-    els.saveBtn.textContent = "Final saved";
+    els.saveBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> Final saved`;
     els.saveBtn.classList.remove("needs-save");
   } else {
-    els.saveBtn.textContent = "Save final";
+    els.saveBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> Save final`;
     els.saveBtn.classList.remove("needs-save");
   }
 }
@@ -894,16 +1123,54 @@ function updateMeta() {
   const call = state.currentCall;
   if (!call) return;
   const info = saveStatusInfo();
-  const parts = [`${state.draft.length} turns`, info.label];
-  if (call.editedBy) parts.push(`edited by ${call.editedBy}`);
-  if (call.verifiedBy) parts.push(`verified by ${call.verifiedBy}`);
-  if (call.updatedAt && info.persisted && !info.dirty) {
-    parts.push(`saved ${new Date(call.updatedAt).toLocaleString()}`);
-  } else if (info.dirty && info.persisted) {
-    parts.push("you have unsaved edits");
+  const duration =
+    state.wavesurfer?.getDuration?.() ||
+    (state.draft.length
+      ? Math.max(
+          ...state.draft.map((m) => (m.end != null ? Number(m.end) : 0)),
+          0
+        )
+      : 0);
+  const providers = [];
+  if (call.hasStt) providers.push("Sarvam");
+
+  const chips = [
+    `<span class="chip"><strong>${formatTime(duration)}</strong> duration</span>`,
+    `<span class="chip"><strong>${state.draft.length}</strong> turns</span>`,
+    `<span class="chip"><strong>${escapeHtml(detectLanguageLabel())}</strong> language</span>`,
+    `<span class="chip"><strong>${call.editedBy || state.currentUser || "—"}</strong> agent</span>`,
+    `<span class="chip"><strong>${providers.length ? providers.join(" · ") : "None"}</strong> provider</span>`,
+    `<span class="chip"><strong>${info.label}</strong></span>`,
+  ];
+
+  if (call.editedBy) {
+    chips.push(`<span class="chip muted">edited by ${escapeHtml(call.editedBy)}</span>`);
   }
-  els.callMeta.textContent = parts.join(" · ");
+  if (call.verifiedBy) {
+    chips.push(`<span class="chip muted">verified by ${escapeHtml(call.verifiedBy)}</span>`);
+  }
+  if (call.status === "unfit" && call.unfitBy) {
+    chips.push(`<span class="chip muted">unfit by ${escapeHtml(call.unfitBy)}</span>`);
+  }
+  if (call.unfitReason) {
+    chips.push(`<span class="chip muted">reason: ${escapeHtml(call.unfitReason)}</span>`);
+  }
+  if (call.updatedAt && info.persisted && !info.dirty) {
+    chips.push(
+      `<span class="chip muted">saved ${escapeHtml(new Date(call.updatedAt).toLocaleString())}</span>`
+    );
+  } else if (info.dirty && info.persisted) {
+    chips.push(`<span class="chip muted">you have unsaved edits</span>`);
+  }
+
+  els.callMeta.innerHTML = chips.join("");
   els.verifyBtn.disabled = call.status !== "edited" || info.dirty;
+  if (els.unfitBtn) {
+    const isUnfit = call.status === "unfit";
+    els.unfitBtn.textContent = isUnfit ? "Clear unfit" : "Mark unfit";
+    els.unfitBtn.classList.toggle("danger", !isUnfit);
+    els.unfitBtn.classList.toggle("secondary", isUnfit);
+  }
   updateSaveStatus();
 }
 
@@ -955,14 +1222,17 @@ async function saveFinal() {
     state.currentCall.editedBy = result.editedBy;
     state.currentCall.verifiedBy = "";
     state.currentCall.verifiedAt = null;
+    state.currentCall.unfitBy = "";
+    state.currentCall.unfitAt = null;
+    state.currentCall.unfitReason = "";
     state.currentCall.final_messages = messages;
     refreshSavedSnapshot();
     updateMeta();
     await loadStats();
     await loadCalls();
-    showToast(`Final saved by ${result.editedBy} — needs another user to verify`);
+    showToast(`Final saved by ${result.editedBy} — needs another user to verify`, "success");
   } catch (err) {
-    showToast(err.message);
+    showToast(err.message, "error");
   }
 }
 
@@ -985,9 +1255,51 @@ async function verifyFinal() {
     updateMeta();
     await loadStats();
     await loadCalls();
-    showToast(`Verified by ${result.verifiedBy}`);
+    showToast(`Verified by ${result.verifiedBy}`, "success");
   } catch (err) {
-    showToast(err.message);
+    showToast(err.message, "error");
+  }
+}
+
+async function toggleUnfit() {
+  if (!state.currentCall) return;
+  if (!getReviewer()) {
+    showToast("Please log in again");
+    window.location.href = "/login";
+    return;
+  }
+
+  const clearing = state.currentCall.status === "unfit";
+  if (!clearing) {
+    const ok = window.confirm(
+      "Mark this call as unfit for the golden set? It will be excluded from verified export."
+    );
+    if (!ok) return;
+  }
+
+  try {
+    const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/unfit`), {
+      method: clearing ? "DELETE" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: clearing ? undefined : JSON.stringify({}),
+    });
+    state.currentCall.status = result.status || (clearing ? "pending" : "unfit");
+    state.currentCall.unfitBy = result.unfitBy || "";
+    state.currentCall.unfitAt = result.unfitAt || null;
+    state.currentCall.unfitReason = result.unfitReason || "";
+    if (clearing) {
+      state.currentCall.edited = result.status === "edited" || result.status === "verified";
+    } else {
+      state.currentCall.edited = true;
+      state.currentCall.verifiedBy = "";
+      state.currentCall.verifiedAt = null;
+    }
+    updateMeta();
+    await loadStats();
+    await loadCalls();
+    showToast(clearing ? "Unfit cleared" : "Marked as unfit", "success");
+  } catch (err) {
+    showToast(err.message, "error");
   }
 }
 
@@ -1024,11 +1336,13 @@ async function switchDataset(dataset) {
   state.page = 1;
   state.search = "";
   state.status = "all";
+  state.sort = "number";
   state.selectedId = null;
   state.currentCall = null;
   state.draft = [];
   els.search.value = "";
   els.statusFilter.value = "all";
+  if (els.sortSelect) els.sortSelect.value = "number";
   els.emptyState.classList.remove("hidden");
   els.callDetail.classList.add("hidden");
   destroyWaveform();
@@ -1120,6 +1434,60 @@ els.statusFilter.addEventListener("change", () => {
   loadCalls();
 });
 
+if (els.sortSelect) {
+  els.sortSelect.addEventListener("change", () => {
+    state.sort = els.sortSelect.value;
+    loadCalls();
+  });
+}
+
+if (els.volumeSlider) {
+  els.volumeSlider.addEventListener("input", () => {
+    const volume = Number(els.volumeSlider.value);
+    if (state.wavesurfer && Number.isFinite(volume)) {
+      state.wavesurfer.setVolume(volume);
+    }
+    if (Number.isFinite(volume)) {
+      els.player.volume = volume;
+    }
+  });
+}
+
+if (els.settingsBtn && els.settingsMenu) {
+  els.settingsBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = els.settingsMenu.classList.toggle("hidden") === false;
+    els.settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", (event) => {
+    if (
+      !els.settingsMenu.classList.contains("hidden") &&
+      !els.settingsMenu.contains(event.target) &&
+      event.target !== els.settingsBtn
+    ) {
+      els.settingsMenu.classList.add("hidden");
+      els.settingsBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+if (els.notifBtn) {
+  els.notifBtn.addEventListener("click", () => {
+    const pending = state.lastStats?.pending ?? 0;
+    showToast(
+      pending > 0
+        ? `${pending} conversation${pending === 1 ? "" : "s"} still pending review`
+        : "No pending conversations"
+    );
+    if (pending > 0) {
+      els.statusFilter.value = "pending";
+      state.status = "pending";
+      state.page = 1;
+      loadCalls();
+    }
+  });
+}
+
 els.prevCallBtn.addEventListener("click", () => {
   if (state.currentCall?.prevId) selectCall(state.currentCall.prevId);
 });
@@ -1131,6 +1499,7 @@ els.nextCallBtn.addEventListener("click", () => {
 els.saveBtn.addEventListener("click", saveFinal);
 els.resetBtn.addEventListener("click", resetFinal);
 els.verifyBtn.addEventListener("click", verifyFinal);
+if (els.unfitBtn) els.unfitBtn.addEventListener("click", toggleUnfit);
 
 els.playPauseBtn.addEventListener("click", () => {
   if (!state.wavesurfer) return;

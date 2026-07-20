@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 CALL_LIMIT = 1000
 
 EXCLUDED_ROLES = {"tool", "tool_output"}
@@ -11,6 +13,19 @@ EXCLUDED_TYPES = {
     "function_call_output",
     "language_switch",
 }
+
+# Leading SSML pause tags like <break time="1.0s" />
+_LEADING_BREAK_RE = re.compile(
+    r"^(?:\s*<break\b[^>]*/>\s*)+",
+    re.IGNORECASE,
+)
+
+
+def clean_message_content(content: str) -> str:
+    """Strip leading SSML break tags and surrounding whitespace."""
+    text = str(content or "")
+    text = _LEADING_BREAK_RE.sub("", text)
+    return text.strip()
 
 
 def visible_messages(messages: list[dict]) -> list[dict]:
@@ -24,7 +39,7 @@ def visible_messages(messages: list[dict]) -> list[dict]:
         if msg_type != "message" or role not in {"user", "assistant"}:
             continue
 
-        content = (msg.get("content") or "").strip()
+        content = clean_message_content(msg.get("content") or "")
         if not content:
             continue
 
@@ -32,7 +47,7 @@ def visible_messages(messages: list[dict]) -> list[dict]:
             {
                 "_id": msg.get("_id", ""),
                 "role": role,
-                "content": msg.get("content", ""),
+                "content": content,
                 "type": "message",
                 "createdAt": msg.get("createdAt", ""),
             }
@@ -70,12 +85,8 @@ def default_final_messages(
     *,
     has_stt: bool,
 ) -> list[dict]:
-    if has_stt and stt_messages and len(stt_messages) == len(original_messages):
-        final: list[dict] = []
-        for orig, stt in zip(original_messages, stt_messages):
-            content = (stt.get("content") or "").strip() or orig.get("content", "")
-            final.append({**orig, "content": content})
-        return final
+    """Seed the Final editor from the Original transcript (not STT)."""
+    del stt_messages, has_stt  # kept for call-site compatibility
     return [{**msg, "content": msg.get("content", "")} for msg in original_messages]
 
 

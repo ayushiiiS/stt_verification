@@ -12,6 +12,17 @@ uploads/
 __pycache__/
 *.pyc
 .DS_Store
+.vercel/
+.gcloud_tmp/
+
+# Secrets / service-account keys — never commit
+bluemachines-*.json
+*service-account*.json
+*credentials*.json
+
+# Large local data (GCS is source of truth on deploy)
+data/
+all_data/
 
 # Large local data files (keep on disk, do not commit)
 ai-agents-production.transcripts.json

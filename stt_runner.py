@@ -126,9 +126,8 @@ class SarvamStore:
         try:
             import gcs_storage
 
-            # path is uploads/<dataset>/sarvam_transcripts.json
             dataset = self.path.parent.name
-            gcs_storage.push_dataset_file(self.path.parent.parent, dataset, "sarvam_transcripts.json")
+            gcs_storage.push_transcript_sarvam(dataset, call_id, entry)
         except Exception as exc:  # noqa: BLE001
             print(f"GCS sarvam sync failed: {exc}", flush=True)
 
