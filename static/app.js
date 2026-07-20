@@ -218,8 +218,6 @@ async function loadStats(options = {}) {
   const unfit = data.unfit || 0;
   const reviewed = edited + verified;
   const completion = total ? Math.round((verified / total) * 1000) / 10 : 0;
-  const sttReady = data.sttGenerated || 0;
-  const confidence = total > 0 ? Math.round((sttReady / total) * 1000) / 10 : 0;
   const attention = pending;
 
   els.stats.innerHTML = `
@@ -246,10 +244,6 @@ async function loadStats(options = {}) {
     <div class="metric-card accent-completion">
       <span class="metric-label">Completion %</span>
       <span class="metric-value">${completion}%</span>
-    </div>
-    <div class="metric-card accent-confidence">
-      <span class="metric-label">Avg. STT Coverage</span>
-      <span class="metric-value">${confidence}%</span>
     </div>
   `;
 
@@ -772,10 +766,43 @@ function destroyWaveform() {
     state.wavesurfer.destroy();
     state.wavesurfer = null;
   }
+  if (els.player) {
+    els.player.pause();
+    els.player.removeAttribute("src");
+    els.player.load();
+    els.player.classList.add("hidden-audio");
+    els.player.ontimeupdate = null;
+    els.player.onplay = null;
+    els.player.onpause = null;
+  }
   state.lastActiveTurn = -1;
   els.waveform.innerHTML = "";
   els.playPauseBtn.textContent = "▶";
   updateTimeDisplays(0, 0);
+}
+
+function getPlaybackTime() {
+  if (state.wavesurfer) return state.wavesurfer.getCurrentTime() || 0;
+  if (els.player && !els.player.classList.contains("hidden-audio")) {
+    return els.player.currentTime || 0;
+  }
+  return 0;
+}
+
+function getPlaybackDuration() {
+  if (state.wavesurfer) return state.wavesurfer.getDuration() || 0;
+  if (els.player && !els.player.classList.contains("hidden-audio")) {
+    return els.player.duration || 0;
+  }
+  return 0;
+}
+
+function isPlaybackPlaying() {
+  if (state.wavesurfer) return state.wavesurfer.isPlaying();
+  if (els.player && !els.player.classList.contains("hidden-audio")) {
+    return !els.player.paused && !els.player.ended;
+  }
+  return false;
 }
 
 function scrollActiveTurnIntoView(index) {
@@ -790,15 +817,20 @@ function scrollActiveTurnIntoView(index) {
 }
 
 function syncHighlight() {
-  if (!state.wavesurfer) return;
-  const t = state.wavesurfer.getCurrentTime();
-  const duration = state.wavesurfer.getDuration() || 0;
+  if (state.highlightTimer) {
+    cancelAnimationFrame(state.highlightTimer);
+    state.highlightTimer = null;
+  }
+
+  const t = getPlaybackTime();
+  const duration = getPlaybackDuration();
   updateTimeDisplays(t, duration);
 
+  // Highlight the latest turn whose start has been reached (sticky until next turn).
   let active = -1;
   state.draft.forEach((msg, index) => {
-    if (msg.start == null || msg.end == null) return;
-    if (t >= msg.start && t < msg.end + 0.05) active = index;
+    if (msg.start == null || Number.isNaN(msg.start)) return;
+    if (t >= msg.start - 0.05) active = index;
   });
 
   els.transcriptGrid.querySelectorAll(".turn-block").forEach((block) => {
@@ -811,7 +843,7 @@ function syncHighlight() {
     scrollActiveTurnIntoView(active);
   }
 
-  if (state.wavesurfer.isPlaying()) {
+  if (isPlaybackPlaying()) {
     state.highlightTimer = requestAnimationFrame(syncHighlight);
   }
 }
@@ -846,6 +878,7 @@ function initWaveform(url) {
   state.wavesurfer.on("ready", () => {
     updateTimeDisplays(0, state.wavesurfer.getDuration());
     updateMeta();
+    syncHighlight();
   });
 
   state.wavesurfer.on("play", () => {
@@ -860,25 +893,62 @@ function initWaveform(url) {
 
   state.wavesurfer.on("finish", () => {
     els.playPauseBtn.textContent = "▶";
+    syncHighlight();
   });
 
   state.wavesurfer.on("interaction", () => {
     syncHighlight();
   });
 
+  state.wavesurfer.on("timeupdate", () => {
+    syncHighlight();
+  });
+
   state.wavesurfer.on("error", () => {
-    els.waveform.innerHTML = `<div class="waveform-empty">Could not load waveform (CORS or expired URL). Audio may still play below.</div>`;
+    if (state.wavesurfer) {
+      try {
+        state.wavesurfer.destroy();
+      } catch (_) {
+        /* ignore */
+      }
+      state.wavesurfer = null;
+    }
+    els.waveform.innerHTML = `<div class="waveform-empty">Could not load waveform (CORS or expired URL). Using fallback audio player.</div>`;
     els.player.src = url;
     els.player.classList.remove("hidden-audio");
+    els.player.playbackRate = rate;
+    if (Number.isFinite(volume)) els.player.volume = volume;
+    els.player.ontimeupdate = () => syncHighlight();
+    els.player.onplay = () => {
+      els.playPauseBtn.textContent = "⏸";
+      syncHighlight();
+    };
+    els.player.onpause = () => {
+      els.playPauseBtn.textContent = "▶";
+      syncHighlight();
+    };
+    els.player.onloadedmetadata = () => {
+      updateTimeDisplays(0, els.player.duration || 0);
+      syncHighlight();
+    };
   });
 }
 
 function seekToTurn(index) {
   const msg = state.draft[index];
-  if (!msg || msg.start == null || !state.wavesurfer) return;
-  const duration = state.wavesurfer.getDuration() || 1;
-  state.wavesurfer.seekTo(Math.min(0.999, Math.max(0, msg.start / duration)));
-  if (!state.wavesurfer.isPlaying()) state.wavesurfer.play();
+  if (!msg || msg.start == null) return;
+  const duration = getPlaybackDuration() || 1;
+  const target = Math.min(Math.max(0, msg.start), Math.max(0, duration - 0.05));
+
+  if (state.wavesurfer) {
+    state.wavesurfer.seekTo(Math.min(0.999, target / duration));
+    if (!state.wavesurfer.isPlaying()) state.wavesurfer.play();
+  } else if (els.player && !els.player.classList.contains("hidden-audio")) {
+    els.player.currentTime = target;
+    if (els.player.paused) els.player.play().catch(() => {});
+  } else {
+    return;
+  }
   syncHighlight();
 }
 
@@ -896,9 +966,11 @@ function renderTranscript() {
             ? "—"
             : "Not generated yet";
         const timeLabel =
-          msg.start != null && msg.end != null
-            ? `${formatTime(msg.start)}–${formatTime(msg.end)}`
-            : "no timing";
+          msg.start != null && !Number.isNaN(msg.start)
+            ? msg.end != null && !Number.isNaN(msg.end)
+              ? `${formatTime(msg.start)}–${formatTime(msg.end)}`
+              : formatTime(msg.start)
+            : "";
         const avatarLetter = msg.role === "user" ? "U" : "A";
         return `
         <div class="turn-block" data-index="${index}">
@@ -915,7 +987,11 @@ function renderTranscript() {
                 </label>
               </div>
               <div class="message-header-actions">
-                <button type="button" class="timing-chip" data-seek="${index}" title="Seek audio to this turn">${timeLabel}</button>
+                ${
+                  timeLabel
+                    ? `<button type="button" class="timing-chip" data-seek="${index}" title="Seek audio to this turn">${timeLabel}</button>`
+                    : ""
+                }
                 <span class="message-type">${msg.added ? "added turn" : "transcript"}</span>
                 <button type="button" class="icon-action collapse-turn-btn" data-index="${index}" title="Collapse turn" aria-label="Collapse turn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -1502,8 +1578,14 @@ els.verifyBtn.addEventListener("click", verifyFinal);
 if (els.unfitBtn) els.unfitBtn.addEventListener("click", toggleUnfit);
 
 els.playPauseBtn.addEventListener("click", () => {
-  if (!state.wavesurfer) return;
-  state.wavesurfer.playPause();
+  if (state.wavesurfer) {
+    state.wavesurfer.playPause();
+    return;
+  }
+  if (els.player && !els.player.classList.contains("hidden-audio")) {
+    if (els.player.paused) els.player.play().catch(() => {});
+    else els.player.pause();
+  }
 });
 
 function isEditingText(target) {
@@ -1518,14 +1600,19 @@ function isEditingText(target) {
 }
 
 function seekAudioBy(seconds) {
-  if (!state.wavesurfer) return;
-  const duration = state.wavesurfer.getDuration() || 0;
+  const duration = getPlaybackDuration() || 0;
   if (!duration) return;
   const next = Math.min(
-    Math.max(0, state.wavesurfer.getCurrentTime() + seconds),
+    Math.max(0, getPlaybackTime() + seconds),
     Math.max(0, duration - 0.05)
   );
-  state.wavesurfer.seekTo(next / duration);
+  if (state.wavesurfer) {
+    state.wavesurfer.seekTo(next / duration);
+  } else if (els.player && !els.player.classList.contains("hidden-audio")) {
+    els.player.currentTime = next;
+  } else {
+    return;
+  }
   syncHighlight();
 }
 
@@ -1550,14 +1637,23 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (!state.wavesurfer) return;
+  const hasAudio =
+    state.wavesurfer ||
+    (els.player && !els.player.classList.contains("hidden-audio") && els.player.src);
+  if (!hasAudio) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
 
   if (event.code === "Space" || event.key === " ") {
     // Allow normal spaces while typing in the final editor / inputs
     if (isEditingText(event.target)) return;
     event.preventDefault();
-    state.wavesurfer.playPause();
+    if (state.wavesurfer) {
+      state.wavesurfer.playPause();
+    } else if (els.player.paused) {
+      els.player.play().catch(() => {});
+    } else {
+      els.player.pause();
+    }
     return;
   }
 

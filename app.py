@@ -33,6 +33,8 @@ from stt_runner import (
 
 from transcript_utils import (
     align_stt_segments,
+    timings_from_created_at,
+    timings_from_stt_segments,
     clean_saved_messages,
     default_final_messages,
     preview_text,
@@ -496,25 +498,31 @@ def get_stt_messages(
     return _messages_from_stt_entry(entry, original_messages)
 
 
-def get_turn_timings(dataset: str, call_id: str, turn_count: int) -> list[dict]:
-    entry = sarvam_by_dataset.get(dataset, {}).get(call_id) or {}
-    raw = entry.get("raw") or {}
-    diarized = raw.get("diarized_transcript") or {}
-    entries = diarized.get("entries") or []
-
-    timings: list[dict] = []
-    for i in range(turn_count):
-        if i < len(entries):
-            item = entries[i]
-            timings.append(
-                {
-                    "start": float(item.get("start_time_seconds") or 0),
-                    "end": float(item.get("end_time_seconds") or 0),
-                }
-            )
-        else:
+def get_turn_timings(
+    dataset: str,
+    call_id: str,
+    turn_count: int,
+    original_messages: list[dict] | None = None,
+) -> list[dict]:
+    """Prefer call createdAt timings; fall back to Sarvam STT segment times."""
+    originals = original_messages or []
+    from_created = timings_from_created_at(originals)
+    if from_created and any(t.get("start") is not None for t in from_created):
+        timings = list(from_created)
+        while len(timings) < turn_count:
             timings.append({"start": None, "end": None})
-    return timings
+        return timings[:turn_count]
+
+    entry = sarvam_by_dataset.get(dataset, {}).get(call_id) or {}
+    segments = entry.get("segments") or []
+    if not segments:
+        raw = entry.get("raw") or {}
+        diarized = raw.get("diarized_transcript") or {}
+        segments = diarized.get("entries") or []
+    if segments:
+        return timings_from_stt_segments(segments, turn_count)
+
+    return [{"start": None, "end": None} for _ in range(turn_count)]
 
 
 def review_status(saved: dict | None) -> str:
@@ -558,7 +566,9 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         len(final_messages),
         len(stt_messages or []),
     )
-    timings = get_turn_timings(dataset, call_id, turn_count)
+    timings = get_turn_timings(
+        dataset, call_id, turn_count, original_messages=original_messages
+    )
 
     return {
         "id": call_id,

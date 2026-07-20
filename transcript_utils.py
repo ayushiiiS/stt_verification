@@ -71,12 +71,93 @@ def align_stt_segments(
     for orig in original_messages:
         entry = {**orig}
         if segment_idx < len(segments):
-            entry["content"] = str(segments[segment_idx].get("content", "")).strip()
+            seg = segments[segment_idx]
+            entry["content"] = str(seg.get("content", "")).strip()
+            if seg.get("start_s") is not None:
+                entry["start_s"] = seg.get("start_s")
+            if seg.get("end_s") is not None:
+                entry["end_s"] = seg.get("end_s")
             segment_idx += 1
         else:
             entry["content"] = ""
         aligned.append(entry)
     return aligned
+
+
+def _as_float(value) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def timings_from_created_at(messages: list[dict]) -> list[dict]:
+    """Derive per-turn [start, end] seconds from message createdAt timestamps."""
+    if not messages:
+        return []
+
+    stamps: list[float | None] = []
+    for msg in messages:
+        stamps.append(_as_float(msg.get("createdAt")))
+
+    valid = [t for t in stamps if t is not None and t >= 0]
+    if not valid:
+        return [{"start": None, "end": None} for _ in messages]
+
+    base = min(valid)
+    # Absolute unix times → relative to first turn; already-relative times stay as-is.
+    relative: list[float | None] = []
+    for t in stamps:
+        if t is None:
+            relative.append(None)
+        elif t >= 1_000_000_000:  # epoch seconds
+            relative.append(max(0.0, t - base))
+        else:
+            relative.append(max(0.0, t))
+
+    result: list[dict] = []
+    for i, start in enumerate(relative):
+        if start is None:
+            result.append({"start": None, "end": None})
+            continue
+        end: float | None = None
+        for later in relative[i + 1 :]:
+            if later is not None and later > start:
+                end = later
+                break
+        if end is None:
+            content_len = len(str(messages[i].get("content") or ""))
+            end = start + max(1.5, min(12.0, content_len / 12.0))
+        result.append({"start": float(start), "end": float(end)})
+    return result
+
+
+def timings_from_stt_segments(segments: list[dict], turn_count: int) -> list[dict]:
+    """Map STT segment start_s/end_s (or Sarvam entry fields) onto turn slots."""
+    timings: list[dict] = []
+    for i in range(turn_count):
+        if i >= len(segments):
+            timings.append({"start": None, "end": None})
+            continue
+        seg = segments[i] or {}
+        start = _as_float(
+            seg.get("start_s")
+            if seg.get("start_s") is not None
+            else seg.get("start_time_seconds")
+            if seg.get("start_time_seconds") is not None
+            else seg.get("start")
+        )
+        end = _as_float(
+            seg.get("end_s")
+            if seg.get("end_s") is not None
+            else seg.get("end_time_seconds")
+            if seg.get("end_time_seconds") is not None
+            else seg.get("end")
+        )
+        timings.append({"start": start, "end": end})
+    return timings
 
 
 def default_final_messages(
