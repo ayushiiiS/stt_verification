@@ -91,6 +91,23 @@ call_order: dict[str, list[str]] = {name: [] for name in DATASETS}
 corrections: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 sarvam_by_dataset: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 phrase_cache: dict[str, list[dict]] = {}
+_data_loaded = False
+
+
+@app.before_request
+def ensure_data_loaded():
+    """Retry boot hydrate if import-time load_data failed or returned empty."""
+    global _data_loaded
+    if _data_loaded and any(call_order.values()):
+        return None
+    if request.path.startswith("/static/"):
+        return None
+    try:
+        load_data()
+        _data_loaded = True
+    except Exception as exc:  # noqa: BLE001
+        print(f"ensure_data_loaded failed: {exc}", flush=True)
+    return None
 
 
 def oid(value) -> str:

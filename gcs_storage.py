@@ -684,6 +684,10 @@ def rebuild_local_dataset(uploads_dir: Path, dataset: str) -> dict:
     return result
 
 
+def agent_aggregate_key(dataset: str, filename: str) -> str:
+    return f"{agent_folder(dataset)}/_aggregate/{filename}"
+
+
 def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = True) -> dict:
     """Hydrate local dataset from per-call GCS layout (legacy flat files as fallback).
 
@@ -716,6 +720,50 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
         result["skipped"] = True
         return result
 
+    # Fast path for serverless: one aggregate object per file (seconds, not minutes).
+    aggregate_files = (
+        "calls.json",
+        "corrected_transcripts.json",
+        "sarvam_transcripts.json",
+        "stt_progress.json",
+    )
+    got_calls = False
+    for name in aggregate_files:
+        local = uploads_dir / dataset / name
+        key = agent_aggregate_key(dataset, name)
+        if hydrate_local(local, key, prefer_remote=True):
+            result["downloaded"].append(f"aggregate:{name}")
+            if name == "calls.json":
+                got_calls = True
+    if got_calls and not force:
+        result["layout"] = "aggregate"
+        return result
+
+    # Avoid full per-call rebuild on Vercel cold starts (too slow / times out).
+    serverless = bool(
+        (os.environ.get("VERCEL") or "").strip()
+        or (os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or "").strip()
+    )
+    if serverless and not force:
+        # Legacy flat keys as last resort before giving up on cold start.
+        for name in aggregate_files:
+            local = uploads_dir / dataset / name
+            if local.exists():
+                continue
+            legacy_key = f"{dataset.strip().lower()}/{name}"
+            if hydrate_local(local, legacy_key, prefer_remote=True):
+                result["downloaded"].append(f"legacy:{name}")
+        if (uploads_dir / dataset / "calls.json").exists():
+            result["layout"] = "legacy"
+            return result
+        result["missing"].append("calls.json")
+        print(
+            f"GCS hydrate skipped full rebuild on serverless for {dataset} "
+            "(set GCS_FORCE_HYDRATE=1 or upload _aggregate/calls.json)",
+            flush=True,
+        )
+        return result
+
     rebuilt = rebuild_local_dataset(uploads_dir, dataset)
     result["rebuilt"] = rebuilt
     if rebuilt.get("calls"):
@@ -723,13 +771,7 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
         return result
 
     # Legacy fallback: flat <dataset>/*.json
-    files = (
-        "calls.json",
-        "corrected_transcripts.json",
-        "sarvam_transcripts.json",
-        "stt_progress.json",
-    )
-    for name in files:
+    for name in aggregate_files:
         local = uploads_dir / dataset / name
         legacy_key = f"{dataset.strip().lower()}/{name}"
         if hydrate_local(local, legacy_key, prefer_remote=True):
@@ -744,10 +786,17 @@ def push_dataset_file(uploads_dir: Path, dataset: str, filename: str) -> bool:
     Compatibility shim.
     - stt_progress.json -> agent/stt_progress.json
     - other aggregates are expanded into per-call objects when possible
+    - always mirrors a fast serverless snapshot under agent/_aggregate/
     """
     local = uploads_dir / dataset / filename
     if not local.exists():
         return False
+
+    # Keep a single-file snapshot for fast Vercel cold starts.
+    try:
+        mirror_local(local, agent_aggregate_key(dataset, filename))
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS aggregate mirror failed ({dataset}/{filename}): {exc}", flush=True)
 
     if filename == "stt_progress.json":
         return mirror_local(local, stt_progress_key(dataset))
