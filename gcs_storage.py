@@ -3,7 +3,8 @@
 Bucket layout (default: goldenset1)::
 
     gs://goldenset1/
-      users.json
+      users.json                 # legacy flat (best-effort)
+      users/<timestamp>.json     # versioned users store (create-only)
       IndiaMART/<call_id>/
         meta.json
         recording.<ext>          # original full recording
@@ -164,8 +165,20 @@ def call_object_key(dataset: str, call_id: str, filename: str) -> str:
     return f"{call_prefix(dataset, call_id)}/{filename.lstrip('/')}"
 
 
+USERS_NAME = "users.json"
+USERS_VERSION_PREFIX = "users/"
+
+
 def users_key() -> str:
-    return "users.json"
+    return USERS_NAME
+
+
+def users_version_key(stamp: str | None = None) -> str:
+    stamp = (
+        (stamp or "").strip().replace(":", "-").replace("+", "p")
+        or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    )
+    return f"{USERS_VERSION_PREFIX}{stamp}.json"
 
 
 def stt_progress_key(dataset: str) -> str:
@@ -1073,11 +1086,42 @@ def _oid(value: Any) -> str:
 
 
 def push_users_file(path: Path) -> bool:
-    return mirror_local(path, users_key())
+    """Persist users via versioned create-only keys (no objects.delete required)."""
+    if not path.exists():
+        return False
+    version_key = users_version_key()
+    ok = upload_file(version_key, path, overwrite=False)
+    # Best-effort legacy flat key for older readers.
+    try:
+        upload_file(users_key(), path, overwrite=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS legacy users.json mirror skipped: {exc}", flush=True)
+    return ok
+
+
+def download_users_payload() -> dict | None:
+    """Load the newest users store (versioned first, then legacy users.json)."""
+    names = sorted(list_prefix(USERS_VERSION_PREFIX), reverse=True)
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        payload = download_json(name)
+        if isinstance(payload, dict) and payload:
+            return payload
+    payload = download_json(users_key())
+    return payload if isinstance(payload, dict) else None
 
 
 def hydrate_users_file(path: Path, *, prefer_remote: bool = True) -> bool:
-    return hydrate_local(path, users_key(), prefer_remote=prefer_remote)
+    """Write the newest remote users store to ``path``."""
+    if not prefer_remote and path.exists():
+        return False
+    payload = download_users_payload()
+    if not isinstance(payload, dict):
+        # Fall back to legacy hydrate if versioned listing failed empty.
+        return hydrate_local(path, users_key(), prefer_remote=prefer_remote)
+    atomic_write_json(path, payload)
+    return True
 
 
 def migrate_local_uploads_to_gcs(
