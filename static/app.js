@@ -767,6 +767,24 @@ function handleFinalInput(event) {
   updateMeta();
 }
 
+function alignDraftTimingsToAudio(duration) {
+  if (!Number.isFinite(duration) || duration < 2 || !state.draft.length) return false;
+  const ends = state.draft
+    .map((m) => (m.end != null ? m.end : m.start))
+    .filter((v) => v != null && Number.isFinite(v));
+  if (!ends.length) return false;
+  const lastEnd = Math.max(...ends);
+  if (lastEnd < 2) return false;
+  const ratio = duration / lastEnd;
+  // Only gentle rescale — corrects small clock drift vs recording length.
+  if (ratio < 0.85 || ratio > 1.2) return false;
+  state.draft.forEach((msg) => {
+    if (msg.start != null) msg.start = Number((msg.start * ratio).toFixed(3));
+    if (msg.end != null) msg.end = Number((msg.end * ratio).toFixed(3));
+  });
+  return true;
+}
+
 function destroyWaveform() {
   if (state.highlightTimer) {
     cancelAnimationFrame(state.highlightTimer);
@@ -846,20 +864,19 @@ function syncHighlight() {
   const duration = getPlaybackDuration();
   updateTimeDisplays(t, duration);
 
-  // Prefer inclusive start→end windows so short user turns are not skipped.
+  // Sticky highlight: active turn is the latest whose start has been reached.
+  // Falls back to start→end windows when starts are missing.
   let active = -1;
   state.draft.forEach((msg, index) => {
     if (msg.start == null || Number.isNaN(msg.start)) return;
-    const end =
-      msg.end != null && !Number.isNaN(msg.end)
-        ? msg.end
-        : msg.start + 1.2;
-    if (t >= msg.start - 0.02 && t < end + 0.02) active = index;
+    if (t >= msg.start - 0.08) active = index;
   });
   if (active < 0) {
     state.draft.forEach((msg, index) => {
       if (msg.start == null || Number.isNaN(msg.start)) return;
-      if (t >= msg.start - 0.02) active = index;
+      const end =
+        msg.end != null && !Number.isNaN(msg.end) ? msg.end : msg.start + 1.2;
+      if (t >= msg.start - 0.02 && t < end + 0.02) active = index;
     });
   }
 
@@ -906,7 +923,11 @@ function initWaveform(url) {
   if (Number.isFinite(volume)) state.wavesurfer.setVolume(volume);
 
   state.wavesurfer.on("ready", () => {
-    updateTimeDisplays(0, state.wavesurfer.getDuration());
+    const duration = state.wavesurfer.getDuration() || 0;
+    updateTimeDisplays(0, duration);
+    if (alignDraftTimingsToAudio(duration)) {
+      renderTranscript();
+    }
     updateMeta();
     syncHighlight();
   });
@@ -958,7 +979,11 @@ function initWaveform(url) {
       syncHighlight();
     };
     els.player.onloadedmetadata = () => {
-      updateTimeDisplays(0, els.player.duration || 0);
+      const duration = els.player.duration || 0;
+      updateTimeDisplays(0, duration);
+      if (alignDraftTimingsToAudio(duration)) {
+        renderTranscript();
+      }
       syncHighlight();
     };
   });
@@ -1270,7 +1295,15 @@ function updateMeta() {
   }
 
   els.callMeta.innerHTML = chips.join("");
-  els.verifyBtn.disabled = call.status !== "edited" || info.dirty;
+  const isVerified = call.status === "verified";
+  const canVerify = call.status === "edited" && !info.dirty;
+  const canUnverify = isVerified && !info.dirty;
+  els.verifyBtn.disabled = !(canVerify || canUnverify);
+  els.verifyBtn.innerHTML = isVerified
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg> Unverify`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> Verify`;
+  els.verifyBtn.classList.toggle("secondary", isVerified);
+  els.verifyBtn.classList.toggle("verify", !isVerified);
   if (els.unfitBtn) {
     const isUnfit = call.status === "unfit";
     els.unfitBtn.textContent = isUnfit ? "Clear unfit" : "Mark unfit";
@@ -1341,7 +1374,7 @@ async function saveFinal() {
     updateMeta();
     await loadStats();
     await loadCalls();
-    showToast(`Final saved by ${result.editedBy} — needs another user to verify`, "success");
+    showToast(`Final saved by ${result.editedBy}`, "success");
   } catch (err) {
     showToast(err.message, "error");
   }
@@ -1354,19 +1387,25 @@ async function verifyFinal() {
     window.location.href = "/login";
     return;
   }
+  const clearing = state.currentCall.status === "verified";
   try {
     const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/verify`), {
-      method: "POST",
+      method: clearing ? "DELETE" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: clearing ? undefined : JSON.stringify({}),
     });
-    state.currentCall.status = "verified";
-    state.currentCall.verifiedBy = result.verifiedBy;
-    state.currentCall.verifiedAt = result.verifiedAt;
+    state.currentCall.status = result.status || (clearing ? "edited" : "verified");
+    state.currentCall.verifiedBy = result.verifiedBy || "";
+    state.currentCall.verifiedAt = result.verifiedAt || null;
     updateMeta();
     await loadStats();
     await loadCalls();
-    showToast(`Verified by ${result.verifiedBy}`, "success");
+    showToast(
+      clearing
+        ? "Verification cleared"
+        : `Verified by ${result.verifiedBy}`,
+      "success"
+    );
   } catch (err) {
     showToast(err.message, "error");
   }

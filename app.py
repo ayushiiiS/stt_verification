@@ -588,24 +588,35 @@ def get_turn_timings(
     turn_count: int,
     original_messages: list[dict] | None = None,
 ) -> list[dict]:
-    """Prefer call createdAt timings; fall back to Sarvam STT segment times."""
+    """Prefer Sarvam STT audio timestamps when available; else createdAt anchors."""
     originals = original_messages or []
-    from_created = timings_from_created_at(originals)
-    if from_created and any(t.get("start") is not None for t in from_created):
-        timings = list(from_created)
-        while len(timings) < turn_count:
-            timings.append({"start": None, "end": None})
-        return timings[:turn_count]
-
     entry = sarvam_by_dataset.get(dataset, {}).get(call_id) or {}
     segments = entry.get("segments") or []
     if not segments:
         raw = entry.get("raw") or {}
         diarized = raw.get("diarized_transcript") or {}
         segments = diarized.get("entries") or []
-    if segments:
-        return timings_from_stt_segments(segments, turn_count)
 
+    stt_timings = timings_from_stt_segments(segments, turn_count) if segments else []
+    stt_hits = sum(1 for t in stt_timings if t.get("start") is not None)
+    # Use STT when it covers most turns (best audio alignment).
+    if stt_hits and stt_hits >= max(1, int(turn_count * 0.6)):
+        return stt_timings
+
+    from_created = timings_from_created_at(originals)
+    if from_created and any(t.get("start") is not None for t in from_created):
+        timings = list(from_created)
+        # Fill gaps from STT when a turn is missing createdAt.
+        while len(timings) < turn_count:
+            timings.append({"start": None, "end": None})
+        if stt_timings:
+            for i in range(min(len(timings), len(stt_timings))):
+                if timings[i].get("start") is None and stt_timings[i].get("start") is not None:
+                    timings[i] = stt_timings[i]
+        return timings[:turn_count]
+
+    if stt_timings:
+        return stt_timings
     return [{"start": None, "end": None} for _ in range(turn_count)]
 
 
@@ -1114,7 +1125,7 @@ def save_correct(call_id: str):
     )
 
 
-@app.route("/api/calls/<call_id>/verify", methods=["POST"])
+@app.route("/api/calls/<call_id>/verify", methods=["POST", "DELETE"])
 def verify_correct(call_id: str):
     dataset = resolve_dataset()
     if call_id not in calls_by_id[dataset]:
@@ -1128,17 +1139,30 @@ def verify_correct(call_id: str):
     if saved.get("unfit"):
         return jsonify({"error": "Clear unfit status before verifying"}), 400
 
-    verifier = current_user()
-    if not verifier:
+    user = current_user()
+    if not user:
         return jsonify({"error": "Login required"}), 401
 
-    editor = (saved.get("editedBy") or "").strip().lower()
-    if editor and editor == verifier.lower():
+    # Unverify
+    if request.method == "DELETE":
+        saved["verifiedBy"] = ""
+        saved["verifiedAt"] = None
+        corrections[dataset][call_id] = saved
+        try:
+            save_corrections(dataset, call_id=call_id)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)}), 500
         return jsonify(
-            {"error": "Verification must be done by a different user than the editor"}
-        ), 400
+            {
+                "ok": True,
+                "verifiedBy": "",
+                "verifiedAt": None,
+                "status": review_status(saved),
+            }
+        )
 
-    saved["verifiedBy"] = verifier
+    # Same user may verify their own save.
+    saved["verifiedBy"] = user
     saved["verifiedAt"] = datetime.now(timezone.utc).isoformat()
     corrections[dataset][call_id] = saved
     try:
@@ -1149,7 +1173,7 @@ def verify_correct(call_id: str):
     return jsonify(
         {
             "ok": True,
-            "verifiedBy": verifier,
+            "verifiedBy": user,
             "verifiedAt": saved["verifiedAt"],
             "status": "verified",
         }

@@ -94,12 +94,11 @@ def _as_float(value) -> float | None:
 
 
 def timings_from_created_at(messages: list[dict]) -> list[dict]:
-    """Derive per-turn [start, end] seconds from message createdAt timestamps.
+    """Map turns onto audio using message createdAt as absolute-ish anchors.
 
-    Agent logs typically stamp assistant turns at speech *start* and user turns
-    at utterance *end*. Short gaps after a user stamp would otherwise skip the
-    user highlight — we expand with content-based duration and keep a minimum
-    window for every turn.
+    Uses relative createdAt as each turn's *start* (monotonic). End is the next
+    turn's start (or a short content estimate for the last turn). Avoids the
+    previous role-based expansion that drifted far from the recording.
     """
     if not messages:
         return []
@@ -119,50 +118,37 @@ def timings_from_created_at(messages: list[dict]) -> list[dict]:
         else:
             relative.append(max(0.0, t))
 
-    def estimate(msg: dict) -> float:
-        content_len = len(str(msg.get("content") or "").strip())
-        return max(1.0, min(18.0, content_len / 13.0 if content_len else 1.2))
+    starts: list[float | None] = []
+    prev = 0.0
+    for rel in relative:
+        if rel is None:
+            starts.append(None)
+            continue
+        start = float(rel)
+        if starts and prev is not None and start < prev:
+            start = prev
+        # Near-duplicate stamps: keep a tiny forward step so turns stay distinct.
+        if starts and prev is not None and abs(start - prev) < 0.05:
+            start = prev + 0.05
+        starts.append(start)
+        prev = start
 
     result: list[dict] = []
-    prev_end = 0.0
-    for i, msg in enumerate(messages):
-        rel = relative[i]
-        if rel is None:
+    for i, start in enumerate(starts):
+        if start is None:
             result.append({"start": None, "end": None})
             continue
-
-        est = estimate(msg)
-        role = (msg.get("role") or "").strip().lower()
-        next_rel: float | None = None
-        for later in relative[i + 1 :]:
-            if later is not None:
-                next_rel = later
+        end: float | None = None
+        for later in starts[i + 1 :]:
+            if later is not None and later > start:
+                end = float(later)
                 break
-
-        if role == "user":
-            # createdAt ≈ end of user speech; keep a real highlight window
-            start = prev_end
-            end = max(float(rel), start + max(1.0, min(est, 8.0)))
-            if end <= start:
-                end = start + max(1.0, est)
-        else:
-            # createdAt ≈ start of assistant speech
-            start = max(float(rel), prev_end)
-            end = start + est
-            if next_rel is not None and next_rel > start:
-                # Don't run past the next stamped event, but keep a usable window.
-                end = max(start + 0.8, min(end, float(next_rel)))
-                if end - start < 0.8:
-                    end = start + 0.8
-
-        if start < prev_end:
-            start = prev_end
-            if end <= start:
-                end = start + max(0.8, est)
-
+        if end is None:
+            content_len = len(str(messages[i].get("content") or "").strip())
+            end = start + max(1.2, min(10.0, content_len / 14.0 if content_len else 1.5))
+        if end <= start:
+            end = start + 0.2
         result.append({"start": float(start), "end": float(end)})
-        prev_end = float(end)
-
     return result
 
 
