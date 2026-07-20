@@ -27,3 +27,7 @@ all_data/
 # Large local data files (keep on disk, do not commit)
 ai-agents-production.transcripts.json
 muthoot_with_public_urls .csv
+.vercel
+
+# Vercel build copies static/ → public/static
+public/static/

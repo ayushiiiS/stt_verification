@@ -1,6 +1,7 @@
 {
+  "buildCommand": "mkdir -p public && rm -rf public/static && cp -R static public/static",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    { "source": "/((?!static/).*)", "destination": "/api/index" }
   ],
   "functions": {
     "api/index.py": {

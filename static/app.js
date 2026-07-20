@@ -298,7 +298,7 @@ async function loadStats(options = {}) {
         state.currentCall = call;
         if (!wasDirty && !call.edited) {
           buildDraft(call);
-          renderTranscript();
+          renderTranscript({ preserveEdits: false });
           refreshSavedSnapshot();
         }
         updateMeta();
@@ -436,23 +436,65 @@ async function loadCalls() {
 }
 
 function buildDraft(call) {
-  const finals = call.final_messages || [];
+  let finals = [...(call.final_messages || [])];
   const originals = call.messages || [];
   const stt = call.stt_messages || [];
   const timings = call.timings || [];
 
-  state.draft = finals.map((msg, index) => ({
-    _id: msg._id || originals[index]?._id || `draft-${index + 1}`,
-    role: msg.role === "user" ? "user" : "assistant",
-    type: "message",
-    createdAt: msg.createdAt || originals[index]?.createdAt || "",
-    content: msg.content ?? "",
-    originalContent: originals[index]?.content ?? "",
-    sttContent: stt[index]?.content ?? "",
-    start: timings[index]?.start ?? null,
-    end: timings[index]?.end ?? null,
-    added: index >= originals.length,
-  }));
+  // A partial save (e.g. one short test turn) must not hide the rest of the call.
+  if (finals.length && finals.length < originals.length) {
+    finals = finals.concat(
+      originals.slice(finals.length).map((msg) => ({
+        ...msg,
+        content: msg.content ?? "",
+      }))
+    );
+  }
+  if (!finals.length) {
+    finals = originals.map((msg) => ({ ...msg, content: msg.content ?? "" }));
+  }
+
+  // Pair Original / Sarvam by role order so added/deleted Final turns don't
+  // shift columns and hide transcript text.
+  const originalPools = { assistant: [], user: [] };
+  const sttPools = { assistant: [], user: [] };
+  for (const msg of originals) {
+    const role = msg.role === "user" ? "user" : "assistant";
+    originalPools[role].push(msg);
+  }
+  for (const msg of stt) {
+    const role = msg.role === "user" ? "user" : "assistant";
+    sttPools[role].push(msg);
+  }
+  const originalCursor = { assistant: 0, user: 0 };
+  const sttCursor = { assistant: 0, user: 0 };
+
+  state.draft = finals.map((msg, index) => {
+    const role = msg.role === "user" ? "user" : "assistant";
+    const orig = originalPools[role][originalCursor[role]];
+    if (orig) originalCursor[role] += 1;
+    const sttMsg = sttPools[role][sttCursor[role]];
+    if (sttMsg) sttCursor[role] += 1;
+    const content = msg.content ?? "";
+    // If this Final turn is empty/near-empty but Original has text, seed from Original
+    // so a corrupt short save doesn't blank the editor.
+    const seeded =
+      String(content).trim().length < 3 && orig?.content
+        ? orig.content
+        : content;
+    return {
+      _id: msg._id || orig?._id || `draft-${index + 1}`,
+      role,
+      type: "message",
+      createdAt: msg.createdAt || orig?.createdAt || "",
+      content: seeded,
+      originalContent: orig?.content ?? "",
+      sttContent: sttMsg?.content ?? "",
+      start: timings[index]?.start ?? msg.start_s ?? null,
+      end: timings[index]?.end ?? msg.end_s ?? null,
+      added: !orig,
+    };
+  });
 }
 
 function syncDraftFromDom() {
@@ -1007,7 +1049,12 @@ function seekToTurn(index) {
   syncHighlight();
 }
 
-function renderTranscript() {
+function renderTranscript({ preserveEdits = true } = {}) {
+  // Keep in-progress Final edits when re-rendering the same call (e.g. audio ready).
+  // Skip when draft was just rebuilt from the server (select / reset / save).
+  if (preserveEdits) {
+    syncDraftFromDom();
+  }
   hideSuggestions();
 
   els.transcriptGrid.innerHTML = state.draft
@@ -1104,7 +1151,7 @@ function renderTranscript() {
       }
       syncDraftFromDom();
       state.draft.splice(Number(btn.dataset.index), 1);
-      renderTranscript();
+      renderTranscript({ preserveEdits: false });
       updateMeta();
     };
   });
@@ -1139,7 +1186,7 @@ function renderTranscript() {
         end: null,
         added: true,
       });
-      renderTranscript();
+      renderTranscript({ preserveEdits: false });
       updateMeta();
     };
   });
@@ -1160,6 +1207,11 @@ function renderTranscript() {
     textarea.addEventListener("blur", () => {
       setTimeout(hideSuggestions, 150);
     });
+  });
+
+  // Re-measure after layout so long Final text isn't clipped.
+  requestAnimationFrame(() => {
+    els.transcriptGrid.querySelectorAll(".final-input").forEach(autoResizeTextarea);
   });
 }
 
@@ -1296,9 +1348,17 @@ function updateMeta() {
 
   els.callMeta.innerHTML = chips.join("");
   const isVerified = call.status === "verified";
-  const canVerify = call.status === "edited" && !info.dirty;
-  const canUnverify = isVerified && !info.dirty;
+  const isSaver =
+    Boolean(call.editedBy) &&
+    call.editedBy.trim().toLowerCase() === getReviewer().trim().toLowerCase();
+  const canVerify = call.status === "edited" && !info.dirty && !isSaver;
+  const canUnverify = isVerified && !info.dirty && !isSaver;
   els.verifyBtn.disabled = !(canVerify || canUnverify);
+  els.verifyBtn.title = isSaver
+    ? "Another reviewer must verify or unverify this save"
+    : isVerified
+      ? "Clear verification"
+      : "Verify final transcript";
   els.verifyBtn.innerHTML = isVerified
     ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg> Unverify`
     : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> Verify`;
@@ -1321,7 +1381,10 @@ function updateNavButtons() {
 
 async function selectCall(callId) {
   state.selectedId = callId;
-  loadCalls();
+  // Refresh list selection styling without a full skeleton reload.
+  els.callList.querySelectorAll(".call-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.id === callId);
+  });
 
   const call = await fetchJSON(apiUrl(`/api/calls/${callId}`));
   state.currentCall = call;
@@ -1332,10 +1395,10 @@ async function selectCall(callId) {
   els.callId.textContent =
     call.number != null ? `#${call.number} · ${call.id}` : call.id;
   els.player.classList.add("hidden-audio");
-  els.resetBtn.textContent = call.hasStt ? "Reset to Sarvam" : "Reset to original";
+  els.resetBtn.textContent = "Reset to original";
 
   initWaveform(call.public_url || "");
-  renderTranscript();
+  renderTranscript({ preserveEdits: false });
   refreshSavedSnapshot();
   updateMeta();
   updateNavButtons();
@@ -1369,11 +1432,14 @@ async function saveFinal() {
     state.currentCall.unfitBy = "";
     state.currentCall.unfitAt = null;
     state.currentCall.unfitReason = "";
-    state.currentCall.final_messages = messages;
+    state.currentCall.final_messages = result.messages || messages;
+    buildDraft(state.currentCall);
+    renderTranscript({ preserveEdits: false });
     refreshSavedSnapshot();
     updateMeta();
-    await loadStats();
-    await loadCalls();
+    // Don't block the UI on list/stats refresh after save.
+    loadStats().catch(() => {});
+    loadCalls().catch(() => {});
     showToast(`Final saved by ${result.editedBy}`, "success");
   } catch (err) {
     showToast(err.message, "error");
@@ -1455,8 +1521,7 @@ async function toggleUnfit() {
 
 async function resetFinal() {
   if (!state.currentCall) return;
-  const label = state.currentCall.hasStt ? "Sarvam transcript" : "original transcript";
-  if (!confirm(`Reset final transcript to ${label} for this call?`)) return;
+  if (!confirm("Reset final transcript to original for this call?")) return;
   try {
     const result = await fetchJSON(
       apiUrl(`/api/calls/${state.currentCall.id}/correct`),
@@ -1469,12 +1534,12 @@ async function resetFinal() {
     state.currentCall.editedBy = "";
     state.currentCall.verifiedBy = "";
     buildDraft(state.currentCall);
-    renderTranscript();
+    renderTranscript({ preserveEdits: false });
     refreshSavedSnapshot();
     updateMeta();
-    await loadStats();
-    await loadCalls();
-    showToast(`Reset to ${label}`);
+    loadStats().catch(() => {});
+    loadCalls().catch(() => {});
+    showToast("Reset to original");
   } catch (err) {
     showToast(err.message);
   }

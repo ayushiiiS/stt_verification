@@ -29,6 +29,7 @@ import os
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -47,7 +48,9 @@ FOLDER_TO_DATASET.update({k: k for k in AGENT_FOLDERS})
 
 ORIGINAL_NAME = "transcript_original.json"
 SARVAM_NAME = "transcript_sarvam.json"
+SARVAM_VERSION_PREFIX = "transcript_sarvam/"
 FINAL_NAME = "transcript_final.json"
+FINAL_VERSION_PREFIX = "transcript_final/"
 META_NAME = "meta.json"
 
 _client = None
@@ -189,11 +192,25 @@ def upload_text(
         blob.upload_from_string(text, content_type=content_type)
         return True
     except Exception as exc:  # noqa: BLE001
-        # Overwrite often needs storage.objects.delete; treat existing as success.
         from google.api_core import exceptions as api_exceptions
 
-        if isinstance(exc, api_exceptions.Forbidden) and blob.exists():
-            return True
+        # If overwrite is blocked, delete then recreate (needs objects.delete).
+        if overwrite and isinstance(exc, api_exceptions.Forbidden):
+            try:
+                if blob.exists():
+                    blob.delete()
+                blob.upload_from_string(text, content_type=content_type)
+                return True
+            except Exception as retry_exc:  # noqa: BLE001
+                print(
+                    f"GCS upload overwrite failed for {key}: {exc}; "
+                    f"delete+recreate also failed: {retry_exc}",
+                    flush=True,
+                )
+                raise RuntimeError(
+                    f"Cannot overwrite gs://{bucket_name()}/{key} "
+                    f"(missing storage.objects.delete?). Original error: {exc}"
+                ) from retry_exc
         raise
 
 
@@ -219,8 +236,22 @@ def upload_file(
     except Exception as exc:  # noqa: BLE001
         from google.api_core import exceptions as api_exceptions
 
-        if isinstance(exc, api_exceptions.Forbidden) and blob.exists():
-            return True
+        if overwrite and isinstance(exc, api_exceptions.Forbidden):
+            try:
+                if blob.exists():
+                    blob.delete()
+                blob.upload_from_filename(str(path), **kwargs)
+                return True
+            except Exception as retry_exc:  # noqa: BLE001
+                print(
+                    f"GCS file overwrite failed for {key}: {exc}; "
+                    f"delete+recreate also failed: {retry_exc}",
+                    flush=True,
+                )
+                raise RuntimeError(
+                    f"Cannot overwrite gs://{bucket_name()}/{key} "
+                    f"(missing storage.objects.delete?). Original error: {exc}"
+                ) from retry_exc
         raise
 
 
@@ -243,8 +274,22 @@ def upload_bytes(
     except Exception as exc:  # noqa: BLE001
         from google.api_core import exceptions as api_exceptions
 
-        if isinstance(exc, api_exceptions.Forbidden) and blob.exists():
-            return True
+        if overwrite and isinstance(exc, api_exceptions.Forbidden):
+            try:
+                if blob.exists():
+                    blob.delete()
+                blob.upload_from_string(data, content_type=content_type)
+                return True
+            except Exception as retry_exc:  # noqa: BLE001
+                print(
+                    f"GCS bytes overwrite failed for {key}: {exc}; "
+                    f"delete+recreate also failed: {retry_exc}",
+                    flush=True,
+                )
+                raise RuntimeError(
+                    f"Cannot overwrite gs://{bucket_name()}/{key} "
+                    f"(missing storage.objects.delete?). Original error: {exc}"
+                ) from retry_exc
         raise
 
 
@@ -271,17 +316,116 @@ def push_transcript_original(
 def push_transcript_sarvam(
     dataset: str, call_id: str, payload: dict, *, overwrite: bool = True
 ) -> bool:
-    return push_json(
-        call_object_key(dataset, call_id, SARVAM_NAME), payload, overwrite=overwrite
+    """Persist Sarvam STT via versioned create-only keys (no delete required)."""
+    del overwrite
+    stamp = (
+        str(payload.get("generatedAt") or payload.get("updatedAt") or "")
+        .strip()
+        .replace(":", "-")
+        .replace("+", "p")
+        or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     )
+    version_key = call_object_key(
+        dataset, call_id, f"{SARVAM_VERSION_PREFIX}{stamp}.json"
+    )
+    ok = push_json(version_key, payload, overwrite=False)
+    try:
+        push_json(
+            call_object_key(dataset, call_id, SARVAM_NAME),
+            payload,
+            overwrite=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"GCS legacy sarvam mirror skipped ({dataset}/{call_id}): {exc}",
+            flush=True,
+        )
+    return ok
+
+
+def download_transcript_sarvam(dataset: str, call_id: str) -> dict | None:
+    """Load the newest Sarvam transcript (versioned first, then legacy)."""
+    prefix = call_object_key(dataset, call_id, SARVAM_VERSION_PREFIX)
+    names = sorted(list_prefix(prefix), reverse=True)
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        payload = download_json(name)
+        if isinstance(payload, dict) and (
+            payload.get("messages") or payload.get("segments")
+        ):
+            return payload
+    return download_json(call_object_key(dataset, call_id, SARVAM_NAME))
 
 
 def push_transcript_final(
     dataset: str, call_id: str, payload: dict, *, overwrite: bool = True
 ) -> bool:
-    return push_json(
-        call_object_key(dataset, call_id, FINAL_NAME), payload, overwrite=overwrite
+    """Persist a final transcript.
+
+    Writes a new versioned object under ``transcript_final/<timestamp>.json``
+    because the service account may lack ``storage.objects.delete`` (required
+    to overwrite an existing ``transcript_final.json``). Also best-effort
+    updates the legacy flat key when overwrite is allowed.
+    """
+    del overwrite  # versioned writes are always create-only
+    stamp = (
+        str(payload.get("updatedAt") or "")
+        .strip()
+        .replace(":", "-")
+        .replace("+", "p")
+        or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     )
+    version_key = call_object_key(
+        dataset, call_id, f"{FINAL_VERSION_PREFIX}{stamp}.json"
+    )
+    ok = push_json(version_key, payload, overwrite=False)
+    # Best-effort legacy path for older readers (ignore overwrite failures).
+    try:
+        push_json(
+            call_object_key(dataset, call_id, FINAL_NAME),
+            payload,
+            overwrite=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"GCS legacy final mirror skipped ({dataset}/{call_id}): {exc}",
+            flush=True,
+        )
+    return ok
+
+
+def download_transcript_final(dataset: str, call_id: str) -> dict | None:
+    """Load the newest final transcript (versioned first, then legacy)."""
+    prefix = call_object_key(dataset, call_id, FINAL_VERSION_PREFIX)
+    names = sorted(list_prefix(prefix), reverse=True)
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        payload = download_json(name)
+        if isinstance(payload, dict) and (
+            payload.get("messages")
+            or payload.get("editedBy")
+            or payload.get("unfit")
+            or payload.get("cleared")
+        ):
+            return payload
+    return download_json(call_object_key(dataset, call_id, FINAL_NAME))
+
+
+def _download_timeout_sec() -> float:
+    raw = (os.environ.get("GCS_DOWNLOAD_TIMEOUT_SEC") or "").strip()
+    if raw:
+        try:
+            return max(5.0, float(raw))
+        except ValueError:
+            pass
+    # Serverless cold starts must finish well under the function maxDuration.
+    if (os.environ.get("VERCEL") or "").strip() or (
+        os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or ""
+    ).strip():
+        return 25.0
+    return 45.0
 
 
 def download_text(key: str) -> str | None:
@@ -289,9 +433,14 @@ def download_text(key: str) -> str | None:
     if _bucket is None:
         return None
     blob = _bucket.blob(key)
-    if not blob.exists():
+    timeout = _download_timeout_sec()
+    try:
+        if not blob.exists(timeout=min(10.0, timeout)):
+            return None
+        return blob.download_as_text(encoding="utf-8", timeout=timeout)
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS download failed {key}: {exc}", flush=True)
         return None
-    return blob.download_as_text(encoding="utf-8")
 
 
 def download_json(key: str) -> Any | None:
@@ -599,7 +748,7 @@ def _load_call_side(dataset: str, call_id: str) -> dict:
     meta = download_json(call_object_key(dataset, call_id, META_NAME)) or {}
     original = download_json(call_object_key(dataset, call_id, ORIGINAL_NAME))
     sarvam = download_json(call_object_key(dataset, call_id, SARVAM_NAME))
-    final = download_json(call_object_key(dataset, call_id, FINAL_NAME))
+    final = download_transcript_final(dataset, call_id)
 
     urls = (meta.get("urls") or {}) if isinstance(meta, dict) else {}
     out["number"] = meta.get("number") if isinstance(meta, dict) else None
@@ -728,13 +877,19 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
         "stt_progress.json",
     )
     got_calls = False
-    for name in aggregate_files:
+
+    def _pull(name: str) -> tuple[str, bool]:
         local = uploads_dir / dataset / name
         key = agent_aggregate_key(dataset, name)
-        if hydrate_local(local, key, prefer_remote=True):
-            result["downloaded"].append(f"aggregate:{name}")
-            if name == "calls.json":
-                got_calls = True
+        return name, hydrate_local(local, key, prefer_remote=True)
+
+    # Parallel pull keeps cold starts under the function timeout.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for name, ok in pool.map(lambda n: _pull(n), aggregate_files):
+            if ok:
+                result["downloaded"].append(f"aggregate:{name}")
+                if name == "calls.json":
+                    got_calls = True
     if got_calls and not force:
         result["layout"] = "aggregate"
         return result

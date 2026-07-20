@@ -1587,9 +1587,13 @@ button, input, select, textarea {
 .stt-text {
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.8);
   flex: 1;
+  min-height: 120px;
+  max-height: none;
+  overflow: visible;
 }
 
 .final-input {
@@ -1597,6 +1601,10 @@ button, input, select, textarea {
   background: rgba(255, 255, 255, 0.9);
   resize: vertical;
   min-height: 120px;
+  max-height: none;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
 

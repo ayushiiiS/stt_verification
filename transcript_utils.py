@@ -55,7 +55,7 @@ def visible_messages(messages: list[dict]) -> list[dict]:
     return result
 
 
-def preview_text(messages: list[dict], limit: int = 80) -> str:
+def preview_text(messages: list[dict], limit: int = 160) -> str:
     for msg in visible_messages(messages):
         content = (msg.get("content") or "").strip()
         if content:
@@ -66,22 +66,105 @@ def preview_text(messages: list[dict], limit: int = 80) -> str:
 def align_stt_segments(
     original_messages: list[dict], segments: list[dict]
 ) -> list[dict]:
-    aligned: list[dict] = []
-    segment_idx = 0
-    for orig in original_messages:
+    """Map STT segments onto original turns.
+
+    Prefer role-aware matching (next same-role segment) when segments carry
+    assistant/user roles — important for human/agent track merges. Fall back
+    to sequential index mapping otherwise.
+
+    When a role has more STT segments than original turns, adjacent segments
+    are merged so no transcript text is dropped.
+    """
+    role_aware = any(
+        str(seg.get("role") or "") in {"assistant", "user"} for seg in segments
+    )
+    if role_aware:
+        pools: dict[str, list[dict]] = {"assistant": [], "user": []}
+        for seg in segments:
+            role = str(seg.get("role") or "")
+            if role in pools:
+                pools[role].append(seg)
+        role_targets = {"assistant": 0, "user": 0}
+        for orig in original_messages:
+            role = str(orig.get("role") or "")
+            if role in role_targets:
+                role_targets[role] += 1
+        for role, target in role_targets.items():
+            pools[role] = _fit_segments_to_count(pools.get(role) or [], target)
+
+        cursor = {"assistant": 0, "user": 0}
+        aligned: list[dict] = []
+        for orig in original_messages:
+            entry = {**orig}
+            role = str(orig.get("role") or "")
+            pool = pools.get(role) or []
+            idx = cursor.get(role, 0)
+            if idx < len(pool):
+                seg = pool[idx]
+                entry["content"] = str(seg.get("content", "")).strip()
+                if seg.get("start_s") is not None:
+                    entry["start_s"] = seg.get("start_s")
+                if seg.get("end_s") is not None:
+                    entry["end_s"] = seg.get("end_s")
+                cursor[role] = idx + 1
+            else:
+                entry["content"] = ""
+            aligned.append(entry)
+        return aligned
+
+    fitted = _fit_segments_to_count(list(segments), len(original_messages))
+    aligned = []
+    for i, orig in enumerate(original_messages):
         entry = {**orig}
-        if segment_idx < len(segments):
-            seg = segments[segment_idx]
+        if i < len(fitted):
+            seg = fitted[i]
             entry["content"] = str(seg.get("content", "")).strip()
             if seg.get("start_s") is not None:
                 entry["start_s"] = seg.get("start_s")
             if seg.get("end_s") is not None:
                 entry["end_s"] = seg.get("end_s")
-            segment_idx += 1
         else:
             entry["content"] = ""
         aligned.append(entry)
     return aligned
+
+
+def _fit_segments_to_count(segments: list[dict], target: int) -> list[dict]:
+    """Merge adjacent segments until count <= target (preserves all text)."""
+    if target <= 0:
+        return []
+    if len(segments) <= target:
+        return segments
+
+    segs = [dict(seg) for seg in segments]
+    while len(segs) > target:
+        # Merge the pair with the smallest time gap (or last pair as fallback).
+        best_i = len(segs) - 2
+        best_gap = float("inf")
+        for i in range(len(segs) - 1):
+            left_end = segs[i].get("end_s")
+            right_start = segs[i + 1].get("start_s")
+            try:
+                gap = float(right_start) - float(left_end)
+            except (TypeError, ValueError):
+                gap = 0.0
+            if gap < best_gap:
+                best_gap = gap
+                best_i = i
+        left = segs[best_i]
+        right = segs[best_i + 1]
+        merged = {
+            **left,
+            "content": f"{left.get('content', '')} {right.get('content', '')}".strip(),
+            "start_s": left.get("start_s")
+            if left.get("start_s") is not None
+            else right.get("start_s"),
+            "end_s": right.get("end_s")
+            if right.get("end_s") is not None
+            else left.get("end_s"),
+        }
+        segs[best_i : best_i + 2] = [merged]
+    return segs
 
 
 def _as_float(value) -> float | None:

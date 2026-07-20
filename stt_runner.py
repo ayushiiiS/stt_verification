@@ -11,10 +11,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from json_format import dump_numbered
-from sarvam_stt import SARVAM_MODE, SARVAM_MODEL, transcribe_audio_url
+from sarvam_stt import (
+    SARVAM_MODE,
+    SARVAM_MODEL,
+    transcribe_audio_url,
+    transcribe_diarized_tracks,
+)
 from transcript_utils import align_stt_segments, visible_messages
 
 DEFAULT_WORKERS = int(os.environ.get("SARVAM_PARALLEL_WORKERS", "3"))
+# Prefer pre-split human/agent tracks when both URLs exist.
+USE_DIARIZED_TRACKS = (os.environ.get("SARVAM_USE_DIARIZED_TRACKS") or "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
 
 _jobs_lock = threading.Lock()
 _running: dict[str, bool] = {}
@@ -150,11 +161,23 @@ class SarvamStore:
 
 def _transcribe_one(call: dict) -> dict:
     call_id = call["id"]
-    url = call.get("public_url") or ""
-    if not url:
-        raise ValueError("Missing public audio URL")
+    human_url = (call.get("human") or "").strip()
+    agent_url = (call.get("agent") or "").strip()
+    public_url = (call.get("public_url") or call.get("recordingUrl") or "").strip()
     original_messages = visible_messages(call.get("messages") or [])
-    segments, raw_payload = transcribe_audio_url(url)
+
+    source = "recording"
+    if USE_DIARIZED_TRACKS and human_url and agent_url:
+        segments, raw_payload = transcribe_diarized_tracks(
+            agent_url=agent_url,
+            human_url=human_url,
+        )
+        source = "diarized_tracks"
+    elif public_url:
+        segments, raw_payload = transcribe_audio_url(public_url)
+    else:
+        raise ValueError("Missing public audio URL (and no human/agent tracks)")
+
     stt_messages = (
         align_stt_segments(original_messages, segments) if original_messages else []
     )
@@ -173,6 +196,7 @@ def _transcribe_one(call: dict) -> dict:
         "callLogId": call_id,
         "model": SARVAM_MODEL,
         "mode": SARVAM_MODE,
+        "source": source,
         "segments": segments,
         "messages": stt_messages,
         "raw": raw_payload,
@@ -209,7 +233,9 @@ def start_stt_job(
         if resume and store.has_messages(call["id"]):
             skipped += 1
             continue
-        if not call.get("public_url"):
+        has_tracks = bool((call.get("human") or "").strip() and (call.get("agent") or "").strip())
+        has_public = bool((call.get("public_url") or call.get("recordingUrl") or "").strip())
+        if not has_tracks and not has_public:
             skipped += 1
             continue
         pending.append(call)

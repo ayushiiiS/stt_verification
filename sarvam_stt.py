@@ -238,12 +238,23 @@ def _job_failure_detail(job: Any) -> str:
     return ", ".join(parts) if parts else "unknown error"
 
 
-def transcribe_audio_file(audio_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def transcribe_audio_file(
+    audio_path: Path,
+    *,
+    with_diarization: bool | None = None,
+    num_speakers: int | None = None,
+    force_role: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     _request_limiter.wait()
 
     api_key = os.environ.get("SARVAM_API_KEY")
     if not api_key:
         raise RuntimeError("SARVAM_API_KEY environment variable is not set")
+
+    use_diarization = (
+        True if with_diarization is None else bool(with_diarization)
+    )
+    speakers = SARVAM_NUM_SPEAKERS if num_speakers is None else max(1, int(num_speakers))
 
     from sarvamai import SarvamAI
 
@@ -251,8 +262,8 @@ def transcribe_audio_file(audio_path: Path) -> tuple[list[dict[str, Any]], dict[
     job = client.speech_to_text_job.create_job(
         model=SARVAM_MODEL,
         mode=SARVAM_MODE,
-        with_diarization=True,
-        num_speakers=SARVAM_NUM_SPEAKERS,
+        with_diarization=use_diarization,
+        num_speakers=speakers,
     )
     job.upload_files(file_paths=[str(audio_path)])
     job.start()
@@ -267,7 +278,12 @@ def transcribe_audio_file(audio_path: Path) -> tuple[list[dict[str, Any]], dict[
         with output_path.open(encoding="utf-8") as handle:
             payload = json.load(handle)
 
-    return parse_sarvam_payload(payload), payload
+    segments = parse_sarvam_payload(payload)
+    if force_role in {"assistant", "user"}:
+        for seg in segments:
+            seg["role"] = force_role
+            seg["track_role"] = force_role
+    return segments, payload
 
 
 def _suffix_from_response(url: str, content_type: str) -> str:
@@ -316,7 +332,13 @@ def _download_audio(url: str, dest: Path) -> None:
             ) from last_error
 
 
-def transcribe_audio_url(audio_url: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def transcribe_audio_url(
+    audio_url: str,
+    *,
+    with_diarization: bool | None = None,
+    num_speakers: int | None = None,
+    force_role: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not audio_url:
         raise ValueError("Missing audio URL")
 
@@ -334,7 +356,91 @@ def transcribe_audio_url(audio_url: str) -> tuple[list[dict[str, Any]], dict[str
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp_path = Path(tmp.name)
         _download_audio(audio_url, tmp_path)
-        return transcribe_audio_file(tmp_path)
+        return transcribe_audio_file(
+            tmp_path,
+            with_diarization=with_diarization,
+            num_speakers=num_speakers,
+            force_role=force_role,
+        )
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
+
+
+def _segment_sort_key(seg: dict[str, Any]) -> tuple[float, float, str]:
+    start = seg.get("start_s")
+    end = seg.get("end_s")
+    start_f = float(start) if start is not None else 1e18
+    end_f = float(end) if end is not None else start_f
+    return (start_f, end_f, str(seg.get("role") or ""))
+
+
+def merge_track_segments(
+    agent_segments: list[dict[str, Any]],
+    human_segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge single-speaker track transcripts onto one timeline."""
+    merged: list[dict[str, Any]] = []
+    for seg in agent_segments:
+        item = dict(seg)
+        item["role"] = "assistant"
+        item["speaker_id"] = "agent"
+        item["diarized"] = True
+        item["source_track"] = "agent"
+        merged.append(item)
+    for seg in human_segments:
+        item = dict(seg)
+        item["role"] = "user"
+        item["speaker_id"] = "human"
+        item["diarized"] = True
+        item["source_track"] = "human"
+        merged.append(item)
+    merged.sort(key=_segment_sort_key)
+    return merged
+
+
+def transcribe_diarized_tracks(
+    *,
+    agent_url: str,
+    human_url: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Transcribe pre-split agent/human tracks and merge by timestamp.
+
+    More accurate than full-mix diarization when separate channel files exist.
+    """
+    if not agent_url or not human_url:
+        raise ValueError("Both agent_url and human_url are required")
+
+    agent_segments, agent_raw = transcribe_audio_url(
+        agent_url,
+        # Keep diarization on with 1 speaker so Sarvam returns timed utterances.
+        with_diarization=True,
+        num_speakers=1,
+        force_role="assistant",
+    )
+    human_segments, human_raw = transcribe_audio_url(
+        human_url,
+        with_diarization=True,
+        num_speakers=1,
+        force_role="user",
+    )
+    segments = merge_track_segments(agent_segments, human_segments)
+    raw = {
+        "source": "diarized_tracks",
+        "agent": agent_raw,
+        "human": human_raw,
+        "diarized_transcript": {
+            "entries": [
+                {
+                    "speaker_id": seg.get("speaker_id"),
+                    "transcript": seg.get("content", ""),
+                    "start_time_seconds": seg.get("start_s"),
+                    "end_time_seconds": seg.get("end_s"),
+                    "role": seg.get("role"),
+                    "source_track": seg.get("source_track"),
+                }
+                for seg in segments
+            ]
+        },
+    }
+    return segments, raw

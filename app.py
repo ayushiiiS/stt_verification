@@ -9,6 +9,7 @@ import csv
 import json
 import os
 import re
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -182,6 +183,13 @@ def save_corrections(dataset: str, call_id: str | None = None) -> None:
             gcs_storage.push_transcript_final(
                 dataset, call_id, corrections[dataset][call_id]
             )
+            # Mirror aggregate in the background — don't block the save response.
+            threading.Thread(
+                target=gcs_storage.push_dataset_file,
+                args=(UPLOADS_DIR, dataset, "corrected_transcripts.json"),
+                daemon=True,
+                name=f"gcs-agg-{dataset}",
+            ).start()
         elif call_id and call_id not in corrections[dataset]:
             # Reset / cleared unfit-only record — wipe remote final
             gcs_storage.push_transcript_final(
@@ -204,11 +212,11 @@ def ensure_correction_loaded(dataset: str, call_id: str) -> dict | None:
     if existing:
         return existing
     try:
-        remote = gcs_storage.download_json(
-            gcs_storage.call_object_key(dataset, call_id, gcs_storage.FINAL_NAME)
-        )
+        remote = gcs_storage.download_transcript_final(dataset, call_id)
     except Exception as exc:  # noqa: BLE001
         print(f"GCS final fetch failed ({dataset}/{call_id}): {exc}", flush=True)
+        return None
+    if isinstance(remote, dict) and remote.get("cleared"):
         return None
     if isinstance(remote, dict) and (
         remote.get("messages") or remote.get("editedBy") or remote.get("unfit")
@@ -568,10 +576,12 @@ def read_dataset_progress(dataset: str) -> dict:
     return progress
 
 
+_sarvam_mtime: dict[str, float] = {}
+
+
 def reload_sarvam_transcripts(dataset: str | None = None) -> None:
     targets = [dataset] if dataset in DATASETS else list(DATASETS)
     for name in targets:
-        merged = dict(sarvam_by_dataset.get(name) or {})
         upload_path = dataset_sarvam_path(UPLOADS_DIR, name)
         legacy_paths = []
         if name == "indiamart":
@@ -579,9 +589,17 @@ def reload_sarvam_transcripts(dataset: str | None = None) -> None:
                 BASE_DIR / "indiamart_sarvam_transcripts.json",
                 ALL_DATA_DIR / "indiamart_sarvam_transcripts.json",
             ]
-        for path in [upload_path, *legacy_paths]:
-            if not path.exists():
-                continue
+        paths = [p for p in [upload_path, *legacy_paths] if p.exists()]
+        mtime = max((p.stat().st_mtime for p in paths), default=0.0)
+        if (
+            name in sarvam_by_dataset
+            and _sarvam_mtime.get(name) == mtime
+            and mtime > 0
+        ):
+            continue
+
+        merged = dict(sarvam_by_dataset.get(name) or {})
+        for path in paths:
             try:
                 with path.open(encoding="utf-8") as handle:
                     loaded = json.load(handle)
@@ -590,6 +608,7 @@ def reload_sarvam_transcripts(dataset: str | None = None) -> None:
             except json.JSONDecodeError:
                 continue
         sarvam_by_dataset[name] = merged
+        _sarvam_mtime[name] = mtime
 
 
 def _messages_from_stt_entry(
@@ -598,17 +617,16 @@ def _messages_from_stt_entry(
     if not entry:
         return None
 
+    # Prefer live alignment from segments so leftover utterance text isn't dropped.
+    segments = entry.get("segments") or []
+    if segments:
+        return align_stt_segments(original_messages, segments)
+
     messages = [
         msg
         for msg in entry.get("messages", [])
         if msg.get("type") != "language_switch"
     ]
-    if messages and len(messages) == len(original_messages):
-        return messages
-
-    segments = entry.get("segments") or []
-    if segments:
-        return align_stt_segments(original_messages, segments)
     if messages:
         return messages
     return None
@@ -676,10 +694,11 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
     original_messages = visible_messages(call.get("messages", []))
     stt_messages = get_stt_messages(dataset, call_id, original_messages)
     has_stt = stt_messages is not None
-    dataset_corrections = corrections[dataset]
     prev_id, next_id = neighbor_ids(dataset, call_id)
 
-    saved = dataset_corrections.get(call_id)
+    saved = ensure_correction_loaded(dataset, call_id) or corrections[dataset].get(
+        call_id
+    )
     if saved:
         final_messages = [
             msg
@@ -690,6 +709,16 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
             final_messages = default_final_messages(
                 original_messages, stt_messages, has_stt=has_stt
             )
+        elif len(final_messages) < len(original_messages):
+            # Partial/corrupt saves (e.g. a single test turn) must not hide the
+            # rest of the transcript — pad missing turns from Original.
+            final_messages = list(final_messages) + [
+                {
+                    **msg,
+                    "content": msg.get("content", ""),
+                }
+                for msg in original_messages[len(final_messages) :]
+            ]
     else:
         final_messages = default_final_messages(
             original_messages, stt_messages, has_stt=has_stt
@@ -715,7 +744,7 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         "stt_messages": stt_messages,
         "final_messages": final_messages,
         "timings": timings,
-        "edited": call_id in dataset_corrections,
+        "edited": call_id in corrections[dataset],
         "status": review_status(saved),
         "editedBy": (saved or {}).get("editedBy") or "",
         "verifiedBy": (saved or {}).get("verifiedBy") or "",
@@ -952,8 +981,12 @@ def storage_status():
 
 @app.route("/")
 def index():
-    ensure_dataset_loaded("indiamart")
-    totals = {name: len(call_order[name]) for name in DATASETS}
+    # Do not hydrate datasets here — cold starts were timing out on GCS
+    # aggregates and making the post-login redirect look "broken". The
+    # client loads counts/calls via /api/stats and /api/calls.
+    totals = {
+        name: len(call_order.get(name) or []) for name in DATASETS
+    }
     return render_template(
         "index.html",
         datasets=DATASET_META,
@@ -1083,11 +1116,12 @@ def list_calls():
         call = calls_by_id[dataset][call_id]
         messages = call.get("messages", [])
         saved = dataset_corrections.get(call_id)
+        preview_src = (saved or {}).get("messages") or messages
         items.append(
             {
                 "id": call_id,
                 "number": recording_number(dataset, call_id),
-                "preview": preview_text(messages),
+                "preview": preview_text(preview_src),
                 "messageCount": len(visible_messages(messages)),
                 "edited": call_id in dataset_corrections,
                 "status": review_status(saved),
@@ -1155,12 +1189,14 @@ def save_correct(call_id: str):
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
 
+    saved = corrections[dataset][call_id]
     return jsonify(
         {
             "ok": True,
-            "updatedAt": corrections[dataset][call_id]["updatedAt"],
+            "updatedAt": saved["updatedAt"],
             "editedBy": reviewer,
             "status": "edited",
+            "messages": saved["messages"],
         }
     )
 
@@ -1183,8 +1219,15 @@ def verify_correct(call_id: str):
     if not user:
         return jsonify({"error": "Login required"}), 401
 
-    # Unverify
+    # Unverify — saver cannot clear their own verification gate
     if request.method == "DELETE":
+        editor = (saved.get("editedBy") or "").strip().lower()
+        if editor and editor == user.strip().lower():
+            return jsonify(
+                {
+                    "error": "The person who saved cannot unverify — ask another reviewer",
+                }
+            ), 403
         saved["verifiedBy"] = ""
         saved["verifiedAt"] = None
         corrections[dataset][call_id] = saved
@@ -1201,7 +1244,15 @@ def verify_correct(call_id: str):
             }
         )
 
-    # Same user may verify their own save.
+    # Verify — must be a different user than the saver
+    editor = (saved.get("editedBy") or "").strip().lower()
+    if editor and editor == user.strip().lower():
+        return jsonify(
+            {
+                "error": "The person who saved cannot verify — ask another reviewer",
+            }
+        ), 403
+
     saved["verifiedBy"] = user
     saved["verifiedAt"] = datetime.now(timezone.utc).isoformat()
     corrections[dataset][call_id] = saved
