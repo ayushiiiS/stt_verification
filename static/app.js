@@ -73,6 +73,7 @@ const els = {
   settingsMenu: document.getElementById("settingsMenu"),
   notifBtn: document.getElementById("notifBtn"),
   notifDot: document.getElementById("notifDot"),
+  workspace: document.getElementById("workspace"),
 };
 
 state.currentUser = (els.currentUser?.textContent || "").trim();
@@ -818,10 +819,20 @@ function scrollActiveTurnIntoView(index) {
   if (index < 0) return;
   const block = els.transcriptGrid.querySelector(`.turn-block[data-index="${index}"]`);
   if (!block) return;
-  block.scrollIntoView({
+
+  // Scroll only inside the workspace so the site header/metrics never leave view.
+  const scroller = els.workspace || block.closest(".workspace");
+  if (!scroller) return;
+
+  const sticky = scroller.querySelector(".sticky-top");
+  const stickyH = sticky ? sticky.offsetHeight : 0;
+  const blockTop = block.offsetTop;
+  const visible = Math.max(120, scroller.clientHeight - stickyH);
+  const target = Math.max(0, blockTop - stickyH - visible * 0.28);
+  const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  scroller.scrollTo({
+    top: Math.min(target, maxScroll),
     behavior: "smooth",
-    block: "center",
-    inline: "nearest",
   });
 }
 
@@ -879,8 +890,8 @@ function initWaveform(url) {
     url,
     height: 48,
     waveColor: "#cbd5e1",
-    progressColor: "#0f766e",
-    cursorColor: "#134e4a",
+    progressColor: "#c45c8a",
+    cursorColor: "#9d3f6b",
     cursorWidth: 2,
     barWidth: 2,
     barGap: 2,
@@ -1295,6 +1306,11 @@ async function selectCall(callId) {
   refreshSavedSnapshot();
   updateMeta();
   updateNavButtons();
+  // Keep top chrome visible — reset workspace scroll when opening a recording.
+  if (els.workspace) {
+    els.workspace.scrollTo({ top: 0, behavior: "auto" });
+  }
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
 
 async function saveFinal() {

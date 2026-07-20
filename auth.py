@@ -14,6 +14,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 DEFAULT_USERS = ("ayushi", "kriti", "akash", "yash")
 USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
+EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.IGNORECASE)
 
 _BASE_DIR = Path(__file__).resolve().parent
 
@@ -36,6 +37,19 @@ def _users_path() -> Path:
 _lock = threading.Lock()
 
 
+def normalize_identity(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def is_valid_identity(value: str) -> bool:
+    user = normalize_identity(value)
+    if not user:
+        return False
+    if "@" in user:
+        return bool(EMAIL_RE.match(user))
+    return bool(USERNAME_RE.match(user))
+
+
 def _parse_password_overrides() -> dict[str, str]:
     raw = (os.environ.get("AUTH_PASSWORDS") or "").strip()
     overrides: dict[str, str] = {}
@@ -46,7 +60,7 @@ def _parse_password_overrides() -> dict[str, str]:
         if ":" not in part:
             continue
         username, password = part.split(":", 1)
-        username = username.strip().lower()
+        username = normalize_identity(username)
         password = password.strip()
         if username and password:
             overrides[username] = password
@@ -94,7 +108,7 @@ def _read_users_file() -> dict[str, str]:
         if not isinstance(data, dict):
             return {}
         return {
-            str(user).strip().lower(): str(password_hash)
+            normalize_identity(str(user)): str(password_hash)
             for user, password_hash in data.items()
             if user and password_hash
         }
@@ -114,12 +128,12 @@ def load_user_store() -> dict[str, str]:
 
 
 def user_exists(username: str) -> bool:
-    user = (username or "").strip().lower()
+    user = normalize_identity(username)
     return user in load_user_store()
 
 
 def authenticate(username: str, password: str) -> str | None:
-    user = (username or "").strip().lower()
+    user = normalize_identity(username)
     store = load_user_store()
     password_hash = store.get(user)
     if not password_hash:
@@ -130,12 +144,15 @@ def authenticate(username: str, password: str) -> str | None:
 
 
 def register_user(username: str, password: str) -> tuple[str | None, str | None]:
-    """Create a user. Returns (username, error)."""
-    user = (username or "").strip().lower()
+    """Create a user (email or username). Returns (identity, error)."""
+    user = normalize_identity(username)
     password = password or ""
 
-    if not USERNAME_RE.match(user):
-        return None, "Username must be 3–32 chars, start with a letter, and use a–z, 0–9, _"
+    if not is_valid_identity(user):
+        return (
+            None,
+            "Enter a valid email (you@company.com) or username (3–32 chars, a–z, 0–9, _)",
+        )
     if len(password) < 4:
         return None, "Password must be at least 4 characters"
 
@@ -143,7 +160,7 @@ def register_user(username: str, password: str) -> tuple[str | None, str | None]
         store = _default_hashes()
         store.update(_read_users_file())
         if user in store:
-            return None, "That username is already taken"
+            return None, "That email or username is already taken"
         store[user] = generate_password_hash(password)
         _write_users_file(store)
     return user, None

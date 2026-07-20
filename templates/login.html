@@ -46,16 +46,16 @@
         <input type="hidden" name="mode" value="{{ mode }}" />
 
         <label>
-          <span>Username</span>
+          <span>Email</span>
           <input
             type="text"
             name="username"
             required
             autofocus
             autocomplete="username"
-            placeholder="Enter username"
-            minlength="3"
-            maxlength="32"
+            inputmode="email"
+            placeholder="you@company.com"
+            maxlength="120"
           />
         </label>
 
@@ -83,6 +83,7 @@
             minlength="4"
           />
         </label>
+        <p class="login-hint">Usernames still work for existing accounts. New signups can use email.</p>
         {% endif %}
 
         <button type="submit" class="btn primary login-submit">
