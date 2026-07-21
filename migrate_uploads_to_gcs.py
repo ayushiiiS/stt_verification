@@ -36,6 +36,11 @@ def main() -> None:
         action="store_true",
         help="Skip mirroring human/agent/recording audio files",
     )
+    parser.add_argument(
+        "--aggregates-only",
+        action="store_true",
+        help="Upload only aggregate JSON snapshots (no per-call meta/audio; safe without objects.delete)",
+    )
     args = parser.parse_args()
 
     if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
@@ -52,6 +57,7 @@ def main() -> None:
         UPLOADS_DIR,
         datasets,
         upload_audio=not args.no_audio,
+        aggregates_only=args.aggregates_only,
     )
     print("Done:", summary, flush=True)
     if not args.no_audio:

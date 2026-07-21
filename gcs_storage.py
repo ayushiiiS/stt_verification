@@ -909,6 +909,25 @@ def hydrate_aggregate_local(
     return True
 
 
+def _aggregate_needs_hydrate(path: Path) -> bool:
+    """True when a local aggregate file is missing or effectively empty."""
+    if not path.exists():
+        return True
+    try:
+        if path.stat().st_size <= 2:
+            return True
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    if payload is None:
+        return True
+    if isinstance(payload, dict):
+        return len(payload) == 0
+    if isinstance(payload, list):
+        return len(payload) == 0
+    return False
+
+
 def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = True) -> dict:
     """Hydrate local dataset from per-call GCS layout (legacy flat files as fallback).
 
@@ -933,6 +952,26 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
     }
 
     if local_calls.exists() and not force:
+        # Calls are already local; still pull companion aggregates that are missing
+        # or empty (e.g. sarvam uploaded after an earlier hydrate).
+        companion_files = (
+            "sarvam_transcripts.json",
+            "corrected_transcripts.json",
+            "stt_progress.json",
+        )
+
+        def _pull_companion(name: str) -> tuple[str, bool]:
+            local = uploads_dir / dataset / name
+            if not _aggregate_needs_hydrate(local):
+                return name, False
+            return name, hydrate_aggregate_local(
+                uploads_dir, dataset, name, prefer_remote=True
+            )
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            for name, ok in pool.map(_pull_companion, companion_files):
+                if ok:
+                    result["downloaded"].append(f"aggregate:{name}")
         result["skipped"] = True
         result["downloaded"].append("local-calls.json")
         return result
@@ -1026,14 +1065,31 @@ def push_dataset_file(uploads_dir: Path, dataset: str, filename: str) -> bool:
         print(f"GCS aggregate mirror failed ({dataset}/{filename}): {exc}", flush=True)
 
     if filename == "stt_progress.json":
-        return mirror_local(local, stt_progress_key(dataset))
+        # Versioned aggregate is enough for serverless hydrate; flat key is best-effort.
+        try:
+            mirror_local(local, stt_progress_key(dataset))
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"GCS stt_progress flat mirror skipped ({dataset}): {exc}",
+                flush=True,
+            )
+        return True
 
     if filename == "calls.json":
         try:
             payload = json.loads(local.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return False
-        return bool(push_calls_payload(dataset, payload, upload_audio=True))
+        try:
+            return bool(
+                push_calls_payload(dataset, payload, upload_audio=upload_audio)
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"GCS per-call calls expansion skipped ({dataset}): {exc}",
+                flush=True,
+            )
+            return True
 
     if filename == "sarvam_transcripts.json":
         try:
@@ -1188,6 +1244,7 @@ def migrate_local_uploads_to_gcs(
     datasets: Iterable[str],
     *,
     upload_audio: bool = True,
+    aggregates_only: bool = False,
 ) -> dict:
     """One-shot: push existing local aggregates into the new per-call layout."""
     summary: dict[str, Any] = {}
@@ -1196,13 +1253,6 @@ def migrate_local_uploads_to_gcs(
         sarvam_path = uploads_dir / dataset / "sarvam_transcripts.json"
         finals_path = uploads_dir / dataset / "corrected_transcripts.json"
         progress_path = uploads_dir / dataset / "stt_progress.json"
-
-        calls_payload: Any = []
-        if calls_path.exists():
-            try:
-                calls_payload = json.loads(calls_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                calls_payload = []
 
         sarvam = {}
         if sarvam_path.exists():
@@ -1222,24 +1272,60 @@ def migrate_local_uploads_to_gcs(
             except json.JSONDecodeError:
                 pass
 
-        n = push_calls_payload(
-            dataset,
-            calls_payload,
-            upload_audio=upload_audio,
-            finals=finals,
-            sarvam=sarvam,
-        )
-        if progress_path.exists():
-            mirror_local(progress_path, stt_progress_key(dataset))
-
-        # Fast-path aggregates for Vercel cold starts (serverless skips per-call rebuild).
-        for filename in (
-            "calls.json",
+        aggregate_files = (
             "sarvam_transcripts.json",
             "corrected_transcripts.json",
             "stt_progress.json",
-        ):
-            push_dataset_file(uploads_dir, dataset, filename)
+        )
+        if not aggregates_only:
+            aggregate_files = ("calls.json",) + aggregate_files
+
+        # Fast-path aggregates first so serverless hydrate works even when
+        # per-call meta overwrite is blocked (missing storage.objects.delete).
+        for filename in aggregate_files:
+            try:
+                push_dataset_file(uploads_dir, dataset, filename)
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"GCS aggregate push failed ({dataset}/{filename}): {exc}",
+                    flush=True,
+                )
+
+        if aggregates_only:
+            summary[dataset] = {
+                "agent": agent_folder(dataset),
+                "calls_pushed": 0,
+                "sarvam": len(sarvam),
+                "finals": len(finals),
+                "aggregates_only": True,
+            }
+            print(
+                f"Migrated aggregates {dataset} -> gs://{bucket_name()}/{agent_folder(dataset)}/_aggregate/",
+                flush=True,
+            )
+            continue
+
+        calls_payload: Any = []
+        if calls_path.exists():
+            try:
+                calls_payload = json.loads(calls_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                calls_payload = []
+
+        n = 0
+        try:
+            n = push_calls_payload(
+                dataset,
+                calls_payload,
+                upload_audio=upload_audio,
+                finals=finals,
+                sarvam=sarvam,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"GCS per-call push failed for {dataset} (aggregates already uploaded): {exc}",
+                flush=True,
+            )
 
         summary[dataset] = {
             "agent": agent_folder(dataset),
