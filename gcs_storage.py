@@ -909,6 +909,11 @@ def hydrate_aggregate_local(
     return True
 
 
+def aggregate_needs_hydrate(path: Path) -> bool:
+    """True when a local aggregate file is missing or effectively empty."""
+    return _aggregate_needs_hydrate(path)
+
+
 def _aggregate_needs_hydrate(path: Path) -> bool:
     """True when a local aggregate file is missing or effectively empty."""
     if not path.exists():
@@ -926,6 +931,34 @@ def _aggregate_needs_hydrate(path: Path) -> bool:
     if isinstance(payload, list):
         return len(payload) == 0
     return False
+
+
+COMPANION_AGGREGATES = (
+    "sarvam_transcripts.json",
+    "corrected_transcripts.json",
+    "stt_progress.json",
+)
+
+
+def refresh_companion_aggregates(uploads_dir: Path, dataset: str) -> list[str]:
+    """Pull missing/empty companion aggregates from GCS (no calls.json refresh)."""
+    if not is_enabled():
+        return []
+    pulled: list[str] = []
+
+    def _pull(name: str) -> tuple[str, bool]:
+        local = uploads_dir / dataset / name
+        if not _aggregate_needs_hydrate(local):
+            return name, False
+        return name, hydrate_aggregate_local(
+            uploads_dir, dataset, name, prefer_remote=True
+        )
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for name, ok in pool.map(_pull, COMPANION_AGGREGATES):
+            if ok:
+                pulled.append(name)
+    return pulled
 
 
 def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = True) -> dict:
@@ -952,27 +985,9 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
     }
 
     if local_calls.exists() and not force:
-        # Calls are already local; still pull companion aggregates that are missing
-        # or empty (e.g. sarvam uploaded after an earlier hydrate).
-        companion_files = (
-            "sarvam_transcripts.json",
-            "corrected_transcripts.json",
-            "stt_progress.json",
-        )
-
-        def _pull_companion(name: str) -> tuple[str, bool]:
-            local = uploads_dir / dataset / name
-            if not _aggregate_needs_hydrate(local):
-                return name, False
-            return name, hydrate_aggregate_local(
-                uploads_dir, dataset, name, prefer_remote=True
-            )
-
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            for name, ok in pool.map(_pull_companion, companion_files):
-                if ok:
-                    result["downloaded"].append(f"aggregate:{name}")
+        pulled = refresh_companion_aggregates(uploads_dir, dataset)
         result["skipped"] = True
+        result["downloaded"].extend(f"aggregate:{name}" for name in pulled)
         result["downloaded"].append("local-calls.json")
         return result
 

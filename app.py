@@ -437,6 +437,11 @@ def ensure_dataset_loaded(dataset: str) -> None:
     if key not in DATASETS:
         return
     if key in _hydrated_datasets and call_order.get(key):
+        pulled = gcs_storage.refresh_companion_aggregates(UPLOADS_DIR, key)
+        if pulled or not sarvam_by_dataset.get(key):
+            if "sarvam_transcripts.json" in pulled:
+                _sarvam_mtime.pop(key, None)
+            reload_sarvam_transcripts(key)
         return
     try:
         gcs_storage.sync_dataset_dir(UPLOADS_DIR, key, prefer_remote=True)
@@ -457,13 +462,15 @@ def ensure_dataset_loaded(dataset: str) -> None:
                         sarvam_by_dataset[key] = json.load(handle)
                 except json.JSONDecodeError:
                     sarvam_by_dataset[key] = {}
+            reload_sarvam_transcripts(key)
             if not call_order[key]:
                 call_order[key] = sorted(calls_by_id[key].keys())
         _hydrated_datasets.add(key)
         if any(call_order.values()):
             _data_loaded = True
         print(
-            f"Loaded dataset {key}: {len(call_order.get(key) or [])} calls",
+            f"Loaded dataset {key}: {len(call_order.get(key) or [])} calls, "
+            f"{len(sarvam_by_dataset.get(key) or {})} sarvam",
             flush=True,
         )
     except Exception as exc:  # noqa: BLE001
@@ -616,6 +623,16 @@ def reload_sarvam_transcripts(dataset: str | None = None) -> None:
     targets = [dataset] if dataset in DATASETS else list(DATASETS)
     for name in targets:
         upload_path = dataset_sarvam_path(UPLOADS_DIR, name)
+        if gcs_storage.is_enabled() and gcs_storage.aggregate_needs_hydrate(
+            upload_path
+        ):
+            gcs_storage.hydrate_aggregate_local(
+                UPLOADS_DIR,
+                name,
+                "sarvam_transcripts.json",
+                prefer_remote=True,
+            )
+
         legacy_paths = []
         if name == "indiamart":
             legacy_paths = [
@@ -624,10 +641,12 @@ def reload_sarvam_transcripts(dataset: str | None = None) -> None:
             ]
         paths = [p for p in [upload_path, *legacy_paths] if p.exists()]
         mtime = max((p.stat().st_mtime for p in paths), default=0.0)
+        in_memory = sarvam_by_dataset.get(name) or {}
         if (
             name in sarvam_by_dataset
             and _sarvam_mtime.get(name) == mtime
             and mtime > 0
+            and in_memory
         ):
             continue
 
