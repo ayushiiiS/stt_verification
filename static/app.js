@@ -2,7 +2,21 @@ const DATASET_LABELS = {
   indiamart: "IndiaMART",
   abhfl: "ABHFL",
   amber: "Amber",
+  muthoot: "Muthoot",
 };
+
+const AUDIO_SYNC_STORAGE_KEY = "golden_set_audio_sync";
+
+function readAudioSyncPreference() {
+  try {
+    const stored = localStorage.getItem(AUDIO_SYNC_STORAGE_KEY);
+    if (stored === "0" || stored === "false") return false;
+    if (stored === "1" || stored === "true") return true;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
 
 const state = {
   dataset: "indiamart",
@@ -26,8 +40,13 @@ const state = {
   translitCache: new Map(),
   translitInflight: new Map(),
   translitTimer: null,
+  wordRefreshTimer: null,
+  playbackWords: [],
+  turnSegments: [],
   currentUser: "",
   lastStats: null,
+  canManageSarvamStt: document.body.dataset.canManageSarvam === "true",
+  audioSyncEnabled: readAudioSyncPreference(),
 };
 
 const els = {
@@ -55,6 +74,9 @@ const els = {
   timeRemaining: document.getElementById("timeRemaining"),
   speedSelect: document.getElementById("speedSelect"),
   volumeSlider: document.getElementById("volumeSlider"),
+  audioSyncToggle: document.getElementById("audioSyncToggle"),
+  realignTimestampsBtn: document.getElementById("realignTimestampsBtn"),
+  syncHint: document.getElementById("syncHint"),
   transcriptGrid: document.getElementById("transcriptGrid"),
   prevCallBtn: document.getElementById("prevCallBtn"),
   nextCallBtn: document.getElementById("nextCallBtn"),
@@ -80,6 +102,95 @@ state.currentUser = (els.currentUser?.textContent || "").trim();
 
 function getReviewer() {
   return state.currentUser || "";
+}
+
+function setAudioSyncEnabled(enabled) {
+  state.audioSyncEnabled = Boolean(enabled);
+  try {
+    localStorage.setItem(AUDIO_SYNC_STORAGE_KEY, state.audioSyncEnabled ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  updateAudioSyncChrome();
+  if (!state.audioSyncEnabled) {
+    clearActiveWordHighlight();
+    state.lastActiveTurn = -1;
+  } else {
+    syncHighlight();
+  }
+}
+
+function updateAudioSyncChrome() {
+  if (!els.audioSyncToggle) return;
+  const enabled = state.audioSyncEnabled;
+  els.audioSyncToggle.classList.toggle("active", enabled);
+  els.audioSyncToggle.setAttribute("aria-pressed", enabled ? "true" : "false");
+  els.audioSyncToggle.title = enabled
+    ? "Disable audio–transcript sync"
+    : "Enable audio–transcript sync";
+  els.audioSyncToggle.innerHTML = enabled
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3"/></svg> Sync on`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3" opacity="0.35"/></svg> Sync off`;
+  if (els.syncHint) {
+    els.syncHint.textContent = enabled
+      ? "Original text · STT-matched timestamps · click a word to seek"
+      : "Sync off · Space play/pause · ←/→ ±10s";
+  }
+}
+
+function clearActiveWordHighlight() {
+  els.transcriptGrid?.querySelectorAll(".sync-word.active-word").forEach((span) => {
+    span.classList.remove("active-word");
+  });
+}
+
+function updateWordHighlights(time) {
+  let activeTurn = -1;
+  const tolerance = 0.04;
+
+  els.transcriptGrid
+    ?.querySelectorAll('[data-source="original"] .sync-word, [data-source="final"] .sync-word')
+    .forEach((span) => {
+    const start = Number(span.dataset.start);
+    const end = Number(span.dataset.end);
+    const wordEnd = Number.isFinite(end) && end > start ? end : start + 0.2;
+    const active =
+      state.audioSyncEnabled &&
+      Number.isFinite(start) &&
+      time + tolerance >= start &&
+      time - tolerance < wordEnd;
+    span.classList.toggle("active-word", active);
+    if (active) {
+      const block = span.closest(".turn-block");
+      if (block) activeTurn = Number(block.dataset.index);
+    }
+  });
+  return activeTurn;
+}
+
+function refreshWordTracksForTurn(index) {
+  const msg = state.draft[index];
+  const block = els.transcriptGrid.querySelector(`.turn-block[data-index="${index}"]`);
+  if (!msg || !block) return;
+
+  const replaceNode = (selector, html) => {
+    const node = block.querySelector(selector);
+    if (node) node.outerHTML = html;
+  };
+
+  replaceNode(
+    '[data-source="original"]',
+    renderSyncedColumn(msg.originalContent, msg.originalWordTimings, "original", index)
+  );
+  replaceNode(
+    '[data-source="sarvam"]',
+    renderSyncedColumn(msg.sttContent, msg.sttWordTimings, "sarvam", index)
+  );
+  const finalHost = block.querySelector(".final-word-host");
+  if (finalHost) {
+    finalHost.innerHTML = renderWordTrackHtml(msg.wordTimings, "final", index);
+  }
+  rebuildPlaybackWordIndex();
 }
 
 function datasetParams(extra = {}) {
@@ -198,8 +309,468 @@ function escapeHtml(text) {
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+  const s = seconds - m * 60;
+  if (Math.abs(s - Math.round(s)) < 0.05) {
+    return `${m}:${String(Math.round(s)).padStart(2, "0")}`;
+  }
+  return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+}
+
+const TIMING_PRECISION = 3;
+
+function roundTime(seconds) {
+  if (!Number.isFinite(seconds)) return null;
+  const factor = 10 ** TIMING_PRECISION;
+  return Math.round(seconds * factor) / factor;
+}
+
+function formatTimeInput(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  const rounded = roundTime(seconds);
+  const m = Math.floor(rounded / 60);
+  const s = rounded - m * 60;
+  return `${m}:${s.toFixed(TIMING_PRECISION).padStart(TIMING_PRECISION + 3, "0")}`;
+}
+
+function parseTimeInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (raw.includes(":")) {
+    const [mins, secs] = raw.split(":", 2);
+    const minutes = Number(mins);
+    const seconds = Number(secs);
+    if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || minutes < 0 || seconds < 0) {
+      return null;
+    }
+    return roundTime(minutes * 60 + seconds);
+  }
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? roundTime(seconds) : null;
+}
+
+function tokenizeWords(text) {
+  const cleaned = String(text || "").trim();
+  if (!cleaned || cleaned === "—" || cleaned === "Not generated yet") return [];
+  return cleaned.split(/\s+/).filter(Boolean);
+}
+
+function timingsFromCreatedAt(messages) {
+  if (!messages?.length) return [];
+  const stamps = messages.map((msg) => {
+    const value = Number(msg.createdAt);
+    return Number.isFinite(value) ? value : null;
+  });
+  const valid = stamps.filter((t) => t != null && t >= 0);
+  if (!valid.length) return messages.map(() => ({ start: null, end: null }));
+
+  const base = Math.min(...valid);
+  const relative = stamps.map((t) => {
+    if (t == null) return null;
+    if (t >= 1_000_000_000) return Math.max(0, t - base);
+    return Math.max(0, t);
+  });
+
+  const starts = [];
+  let prev = 0;
+  for (const rel of relative) {
+    if (rel == null) {
+      starts.push(null);
+      continue;
+    }
+    let start = rel;
+    if (starts.length && prev != null && start < prev) start = prev;
+    if (starts.length && prev != null && Math.abs(start - prev) < 0.05) {
+      start = prev + 0.05;
+    }
+    starts.push(start);
+    prev = start;
+  }
+
+  return messages.map((msg, index) => {
+    const start = starts[index];
+    if (start == null) return { start: null, end: null };
+    let end = null;
+    for (let i = index + 1; i < starts.length; i += 1) {
+      if (starts[i] != null && starts[i] > start) {
+        end = starts[i];
+        break;
+      }
+    }
+    if (end == null) {
+      const contentLen = String(msg.content || "").trim().length;
+      end = start + Math.max(1.2, Math.min(10, contentLen / 14 || 1.5));
+    }
+    if (end <= start) end = start + 0.2;
+    return { start: roundTime(start), end: roundTime(end) };
+  });
+}
+
+function buildWordTimings(text, start, end) {
+  const words = tokenizeWords(text);
+  if (!words.length) return [];
+  if (start == null || !Number.isFinite(start)) return [];
+
+  const startTime = roundTime(start);
+  let endTime =
+    end != null && Number.isFinite(end) && end > startTime
+      ? roundTime(end)
+      : roundTime(startTime + words.length * 0.28);
+  if (endTime <= startTime) {
+    endTime = roundTime(startTime + words.length * 0.28);
+  }
+
+  const duration = endTime - startTime;
+  const weights = words.map((word) => {
+    const core = word.replace(/[^\w\u0900-\u097F]/g, "");
+    return Math.max(1, core.length || word.length || 1);
+  });
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || words.length;
+  let cursor = startTime;
+
+  return words.map((word, index) => {
+    const slice = (weights[index] / totalWeight) * duration;
+    const wordStart = roundTime(cursor);
+    const wordEnd = roundTime(index === words.length - 1 ? endTime : cursor + slice);
+    cursor = wordEnd;
+    return { word, start: wordStart, end: wordEnd };
+  });
+}
+
+function segmentTimes(seg) {
+  const pick = (keys) => {
+    for (const key of keys) {
+      if (seg[key] != null && seg[key] !== "") {
+        const value = Number(seg[key]);
+        if (Number.isFinite(value)) return value;
+      }
+    }
+    return null;
+  };
+  const start = roundTime(
+    pick([
+      "start_s",
+      "start_time_seconds",
+      "start_time_sec",
+      "start_seconds",
+      "start_sec",
+      "start",
+      "startSeconds",
+      "start_time",
+    ])
+  );
+  const end = roundTime(
+    pick([
+      "end_s",
+      "end_time_seconds",
+      "end_time_sec",
+      "end_seconds",
+      "end_sec",
+      "end",
+      "endSeconds",
+      "end_time",
+    ])
+  );
+  if (!Number.isFinite(start)) return { start: null, end: null };
+  if (!Number.isFinite(end) || end <= start) {
+    return { start, end: roundTime(start + 0.35) };
+  }
+  return { start, end };
+}
+
+function mergeAdjacentSegments(segments) {
+  if (segments.length <= 1) return segments;
+  const segs = segments.map((seg) => ({ ...seg }));
+  while (segs.length > 1) {
+    let bestI = segs.length - 2;
+    let bestGap = Infinity;
+    for (let i = 0; i < segs.length - 1; i += 1) {
+      const left = segmentTimes(segs[i]);
+      const right = segmentTimes(segs[i + 1]);
+      const gap =
+        left.end != null && right.start != null
+          ? right.start - left.end
+          : 0;
+      if (gap < bestGap) {
+        bestGap = gap;
+        bestI = i;
+      }
+    }
+    const left = segs[bestI];
+    const right = segs[bestI + 1];
+    const leftTimes = segmentTimes(left);
+    const rightTimes = segmentTimes(right);
+    segs.splice(bestI, 2, {
+      ...left,
+      content: `${left.content || ""} ${right.content || ""}`.trim(),
+      start_s: leftTimes.start,
+      end_s: rightTimes.end,
+      start_time_seconds: leftTimes.start,
+      end_time_seconds: rightTimes.end,
+    });
+    if (segs.length === 1) break;
+  }
+  return segs;
+}
+
+function fitSegmentsToCount(segments, target) {
+  if (target <= 0) return [];
+  if (segments.length <= target) return segments;
+  let segs = segments.map((seg) => ({ ...seg }));
+  while (segs.length > target) {
+    let bestI = segs.length - 2;
+    let bestGap = Infinity;
+    for (let i = 0; i < segs.length - 1; i += 1) {
+      const left = segmentTimes(segs[i]);
+      const right = segmentTimes(segs[i + 1]);
+      const gap =
+        left.end != null && right.start != null
+          ? right.start - left.end
+          : 0;
+      if (gap < bestGap) {
+        bestGap = gap;
+        bestI = i;
+      }
+    }
+    const left = segs[bestI];
+    const right = segs[bestI + 1];
+    const leftTimes = segmentTimes(left);
+    const rightTimes = segmentTimes(right);
+    segs.splice(bestI, 2, {
+      ...left,
+      content: `${left.content || ""} ${right.content || ""}`.trim(),
+      start_s: leftTimes.start,
+      end_s: rightTimes.end,
+      start_time_seconds: leftTimes.start,
+      end_time_seconds: rightTimes.end,
+    });
+  }
+  return segs;
+}
+
+function assignSegmentsToTurns(turns, segments) {
+  const assignments = turns.map(() => []);
+  if (!segments.length || !turns.length) return assignments;
+
+  const roleAware = segments.some((seg) =>
+    ["assistant", "user"].includes(String(seg.role || ""))
+  );
+
+  if (roleAware) {
+    const pools = { assistant: [], user: [] };
+    for (const seg of segments) {
+      const role = String(seg.role || "");
+      if (role in pools) pools[role].push(seg);
+    }
+    const roleTargets = { assistant: 0, user: 0 };
+    for (const turn of turns) {
+      const role = turn.role === "user" ? "user" : "assistant";
+      if (role in roleTargets) roleTargets[role] += 1;
+    }
+    for (const role of Object.keys(roleTargets)) {
+      pools[role] = fitSegmentsToCount(pools[role] || [], roleTargets[role]);
+    }
+    const cursor = { assistant: 0, user: 0 };
+    turns.forEach((turn, index) => {
+      const role = turn.role === "user" ? "user" : "assistant";
+      const pool = pools[role] || [];
+      const idx = cursor[role];
+      if (idx < pool.length) {
+        assignments[index] = [pool[idx]];
+        cursor[role] += 1;
+      }
+    });
+    return assignments;
+  }
+
+  const fitted = fitSegmentsToCount(segments, turns.length);
+  fitted.forEach((seg, index) => {
+    if (assignments[index]) assignments[index] = [seg];
+  });
+  return assignments;
+}
+
+function buildWordTimingsFromSegments(segments) {
+  const out = [];
+  const sorted = [...segments].sort((a, b) => {
+    const left = segmentTimes(a).start ?? 0;
+    const right = segmentTimes(b).start ?? 0;
+    return left - right;
+  });
+  for (const seg of sorted) {
+    const { start, end } = segmentTimes(seg);
+    if (start == null) continue;
+    const content = String(seg.content || seg.transcript || "").trim();
+    out.push(...buildWordTimings(content, start, end));
+  }
+  return out;
+}
+
+function remapWordTimings(text, reference, turnStart, turnEnd) {
+  const words = tokenizeWords(text);
+  if (!words.length) return [];
+  if (!reference?.length) return buildWordTimings(text, turnStart, turnEnd);
+  if (words.length === reference.length) {
+    return words.map((word, index) => ({
+      word,
+      start: reference[index].start,
+      end: reference[index].end,
+    }));
+  }
+  const refStart = reference[0].start;
+  const refEnd = reference[reference.length - 1].end;
+  return buildWordTimings(text, refStart, refEnd);
+}
+
+function buildPhraseTimingsFromSegments(segments) {
+  const sorted = [...segments].sort((a, b) => {
+    const left = segmentTimes(a).start ?? 0;
+    const right = segmentTimes(b).start ?? 0;
+    return left - right;
+  });
+  const out = [];
+  for (const seg of sorted) {
+    const { start, end } = segmentTimes(seg);
+    if (start == null) continue;
+    const text = String(seg.content || seg.transcript || "").trim();
+    if (!text) continue;
+    out.push({ word: text, start, end });
+  }
+  return out;
+}
+
+function segmentsForTurnWindow(start, end, segments, fallback = [], role = null) {
+  const pad = 0.15;
+  if (
+    start != null &&
+    end != null &&
+    Number.isFinite(start) &&
+    Number.isFinite(end) &&
+    segments.length
+  ) {
+    let overlapping = segments.filter((seg) => {
+      const times = segmentTimes(seg);
+      if (times.start == null) return false;
+      const segEnd = times.end ?? times.start + 0.3;
+      return times.start < end + pad && segEnd > start - pad;
+    });
+    if (role) {
+      const roleHits = overlapping.filter((seg) => {
+        const segRole = String(seg.role || "");
+        return !segRole || segRole === "unknown" || segRole === role;
+      });
+      if (roleHits.length) overlapping = roleHits;
+    }
+    overlapping.sort(
+      (a, b) => (segmentTimes(a).start ?? 0) - (segmentTimes(b).start ?? 0)
+    );
+    if (overlapping.length) return overlapping;
+  }
+  return fallback;
+}
+
+function boundsFromSegments(segments) {
+  if (!segments?.length) return { start: null, end: null };
+  const starts = [];
+  const ends = [];
+  for (const seg of segments) {
+    const times = segmentTimes(seg);
+    if (times.start != null) starts.push(times.start);
+    if (times.end != null) ends.push(times.end);
+  }
+  return {
+    start: starts.length ? Math.min(...starts) : null,
+    end: ends.length ? Math.max(...ends) : null,
+  };
+}
+
+function sttMessageBounds(sttMsg) {
+  if (!sttMsg) return { start: null, end: null };
+  const start = Number(
+    sttMsg.start_s ?? sttMsg.start_time_seconds ?? sttMsg.start ?? NaN
+  );
+  const end = Number(sttMsg.end_s ?? sttMsg.end_time_seconds ?? sttMsg.end ?? NaN);
+  return {
+    start: Number.isFinite(start) ? roundTime(start) : null,
+    end: Number.isFinite(end) ? roundTime(end) : null,
+  };
+}
+
+function attachWordTimings(msg, segmentsForTurn = []) {
+  const segmentWords = buildWordTimingsFromSegments(segmentsForTurn);
+  const sttRef = segmentWords.length
+    ? segmentWords
+    : buildWordTimings(msg.sttContent, msg.start, msg.end);
+
+  msg.segments = segmentsForTurn;
+  msg.sttWordTimings = [];
+  msg.originalWordTimings = msg.originalContent
+    ? sttRef.length
+      ? remapWordTimings(msg.originalContent, sttRef, msg.start, msg.end)
+      : buildWordTimings(msg.originalContent, msg.start, msg.end)
+    : [];
+  msg.wordTimings = msg.originalWordTimings.length
+    ? remapWordTimings(msg.content, msg.originalWordTimings, msg.start, msg.end)
+    : buildWordTimings(msg.content, msg.start, msg.end);
+}
+
+function rebuildPlaybackWordIndex() {
+  const entries = [];
+  state.draft.forEach((msg, turnIndex) => {
+    for (const item of msg.originalWordTimings || []) {
+      entries.push({ ...item, turnIndex, source: "original" });
+    }
+  });
+  entries.sort((a, b) => a.start - b.start);
+  state.playbackWords = entries;
+}
+
+function renderWordTrackHtml(wordTimings, source = "final", turnIndex = null) {
+  if (!wordTimings?.length) {
+    return `<div class="word-sync-track empty" data-source="${source}"><span class="word-sync-empty">No timing</span></div>`;
+  }
+  return `<div class="word-sync-track" data-source="${source}">${wordTimings
+    .map(
+      (item, wordIndex) =>
+        `<button type="button" class="sync-word" data-turn="${turnIndex ?? ""}" data-word-idx="${wordIndex}" data-start="${item.start}" data-end="${item.end}" title="${formatTimeInput(item.start)}–${formatTimeInput(item.end)}">${escapeHtml(item.word)}</button>`
+    )
+    .join("")}</div>`;
+}
+
+function renderSyncedColumn(text, wordTimings, source, turnIndex = null) {
+  if (wordTimings?.length) {
+    return renderWordTrackHtml(wordTimings, source, turnIndex);
+  }
+  const cleaned = String(text || "").trim();
+  return cleaned
+    ? `<div class="plain-text" data-source="${source}">${escapeHtml(cleaned)}</div>`
+    : `<div class="plain-text muted" data-source="${source}">—</div>`;
+}
+
+function defaultTimingForInsertedTurn(afterIndex) {
+  const prev = state.draft[afterIndex];
+  const next = state.draft[afterIndex + 1];
+  const playhead = getPlaybackTime();
+  const duration = getPlaybackDuration();
+
+  if (Number.isFinite(playhead) && playhead >= 0) {
+    const start = roundTime(playhead);
+    const end = roundTime(Math.min(duration || start + 2, start + 2));
+    return { start, end: end > start ? end : roundTime(start + 0.5) };
+  }
+
+  const prevEnd = prev?.end ?? prev?.start;
+  if (prevEnd != null && Number.isFinite(prevEnd)) {
+    const start = roundTime(prevEnd + 0.05);
+    return { start, end: roundTime(start + 2) };
+  }
+
+  const nextStart = next?.start;
+  if (nextStart != null && Number.isFinite(nextStart)) {
+    const end = roundTime(nextStart);
+    return { start: roundTime(Math.max(0, end - 2)), end };
+  }
+
+  return { start: 0, end: 2 };
 }
 
 function statusLabel(status) {
@@ -309,12 +880,21 @@ async function loadStats(options = {}) {
   }
 }
 
+let sttRunning = false;
+
 function updateSttButton(running) {
+  sttRunning = running;
   if (!els.startSttBtn) return;
-  els.startSttBtn.disabled = running;
-  els.startSttBtn.innerHTML = running
-    ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg> Sarvam STT running…`
-    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg> Start Sarvam STT`;
+  els.startSttBtn.disabled = false;
+  if (running) {
+    els.startSttBtn.className = "btn danger";
+    els.startSttBtn.innerHTML =
+      `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Stop Sarvam STT`;
+  } else {
+    els.startSttBtn.className = "btn accent";
+    els.startSttBtn.innerHTML =
+      `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg> Start Sarvam STT`;
+  }
 }
 
 function renderSttProgress(progress, sttGenerated, total) {
@@ -334,7 +914,9 @@ function renderSttProgress(progress, sttGenerated, total) {
   els.progressMeta.textContent =
     targetTotal > 0
       ? `${saved}/${targetTotal} STT ready (${percent}%)${running ? " · running" : ""}`
-      : "Upload calls, then start Sarvam STT";
+      : state.canManageSarvamStt
+        ? "Upload calls, then start Sarvam STT"
+        : "Upload calls to review transcripts";
 }
 
 function renderPagination(data) {
@@ -440,6 +1022,9 @@ function buildDraft(call) {
   const originals = call.messages || [];
   const stt = call.stt_messages || [];
   const timings = call.timings || [];
+  const turnSegments = call.timing_segments || [];
+  const sttSegments = call.stt_segments || [];
+  const hasSttTiming = Boolean(call.hasStt && (stt.length || sttSegments.length || turnSegments.length));
 
   // A partial save (e.g. one short test turn) must not hide the rest of the call.
   if (finals.length && finals.length < originals.length) {
@@ -469,6 +1054,15 @@ function buildDraft(call) {
   const originalCursor = { assistant: 0, user: 0 };
   const sttCursor = { assistant: 0, user: 0 };
 
+  const originalTimings = timingsFromCreatedAt(originals);
+  const timingByOriginalId = {};
+  originals.forEach((msg, index) => {
+    if (msg._id) timingByOriginalId[msg._id] = originalTimings[index];
+  });
+
+  state.sttSegments = sttSegments;
+  state.turnSegments = turnSegments;
+
   state.draft = finals.map((msg, index) => {
     const role = msg.role === "user" ? "user" : "assistant";
     const orig = originalPools[role][originalCursor[role]];
@@ -476,6 +1070,21 @@ function buildDraft(call) {
     const sttMsg = sttPools[role][sttCursor[role]];
     if (sttMsg) sttCursor[role] += 1;
     const content = msg.content ?? "";
+    const origTiming = orig?._id ? timingByOriginalId[orig._id] : null;
+    const matchedBounds = boundsFromSegments(turnSegments[index] || []);
+    const sttBounds = matchedBounds.start != null ? matchedBounds : sttMessageBounds(sttMsg);
+    const savedStart = timings[index]?.start;
+    const savedEnd = timings[index]?.end;
+    const hasSavedBounds =
+      savedStart != null &&
+      savedEnd != null &&
+      Number.isFinite(Number(savedStart)) &&
+      Number.isFinite(Number(savedEnd));
+    const savedMatchesStt =
+      !hasSttTiming ||
+      sttBounds.start == null ||
+      Math.abs(Number(savedStart) - sttBounds.start) < 1.5;
+    const useSaved = hasSavedBounds && savedMatchesStt;
     // If this Final turn is empty/near-empty but Original has text, seed from Original
     // so a corrupt short save doesn't blank the editor.
     const seeded =
@@ -490,11 +1099,32 @@ function buildDraft(call) {
       content: seeded,
       originalContent: orig?.content ?? "",
       sttContent: sttMsg?.content ?? "",
-      start: timings[index]?.start ?? msg.start_s ?? null,
-      end: timings[index]?.end ?? msg.end_s ?? null,
+      start: useSaved
+        ? roundTime(Number(savedStart))
+        : hasSttTiming
+          ? sttBounds.start ?? origTiming?.start ?? null
+          : origTiming?.start ?? sttBounds.start ?? null,
+      end: useSaved
+        ? roundTime(Number(savedEnd))
+        : hasSttTiming
+          ? sttBounds.end ?? origTiming?.end ?? null
+          : origTiming?.end ?? sttBounds.end ?? null,
       added: !orig,
     };
   });
+  state.draft.forEach((msg, index) => {
+    const segmentsForTurn = turnSegments[index]?.length
+      ? turnSegments[index]
+      : segmentsForTurnWindow(
+          msg.start,
+          msg.end,
+          sttSegments,
+          assignSegmentsToTurns([{ role: msg.role }], sttSegments)[0] || [],
+          msg.role
+        );
+    attachWordTimings(msg, segmentsForTurn);
+  });
+  rebuildPlaybackWordIndex();
 }
 
 function syncDraftFromDom() {
@@ -504,8 +1134,12 @@ function syncDraftFromDom() {
     if (!state.draft[index]) return;
     const roleSelect = card.querySelector(".role-select");
     const textarea = card.querySelector(".final-input");
+    const startInput = card.querySelector(".timing-start");
+    const endInput = card.querySelector(".timing-end");
     if (roleSelect) state.draft[index].role = roleSelect.value;
     if (textarea) state.draft[index].content = textarea.value;
+    if (startInput) state.draft[index].start = parseTimeInput(startInput.value);
+    if (endInput) state.draft[index].end = parseTimeInput(endInput.value);
   });
 }
 
@@ -790,12 +1424,68 @@ async function handleFinalKeydown(event) {
   }
 }
 
+function realignTimestampsFromStt() {
+  const turnSegments = state.turnSegments?.length
+    ? state.turnSegments
+    : state.currentCall?.timing_segments || [];
+  if (!turnSegments.length || !state.draft.length) {
+    showToast("No STT timing data for this call");
+    return;
+  }
+
+  state.draft.forEach((msg, index) => {
+    const bounds = boundsFromSegments(turnSegments[index] || []);
+    if (bounds.start != null) msg.start = bounds.start;
+    if (bounds.end != null) msg.end = bounds.end;
+    attachWordTimings(msg, turnSegments[index] || []);
+  });
+
+  const duration = getPlaybackDuration();
+  if (duration > 0) {
+    alignDraftTimingsToAudio(duration);
+  }
+
+  rebuildPlaybackWordIndex();
+  renderTranscript({ preserveEdits: false });
+  syncHighlight();
+  showToast("Timestamps re-matched from STT", "success");
+}
+
+function refreshTurnWordTimings(index) {
+  const msg = state.draft[index];
+  if (!msg) return;
+  const turnSegments = state.turnSegments?.length
+    ? state.turnSegments
+    : state.currentCall?.timing_segments || [];
+  const segmentsForTurn = turnSegments[index]?.length
+    ? turnSegments[index]
+    : segmentsForTurnWindow(
+        msg.start,
+        msg.end,
+        state.sttSegments || [],
+        assignSegmentsToTurns([{ role: msg.role }], state.sttSegments || [])[0] || [],
+        msg.role
+      );
+  attachWordTimings(msg, segmentsForTurn);
+  refreshWordTracksForTurn(index);
+  rebuildPlaybackWordIndex();
+}
+
 function handleFinalInput(event) {
   const textarea = event.target;
   if (!textarea.classList.contains("final-input")) return;
   state.activeTextarea = textarea;
   const index = Number(textarea.dataset.index);
   if (state.draft[index]) state.draft[index].content = textarea.value;
+
+  clearTimeout(state.wordRefreshTimer);
+  state.wordRefreshTimer = setTimeout(() => {
+    if (!state.draft[index]) return;
+    refreshTurnWordTimings(index);
+    if (state.audioSyncEnabled) {
+      syncHighlight();
+    }
+  }, 250);
 
   const word = currentWordBeforeCursor(textarea);
 
@@ -810,19 +1500,47 @@ function handleFinalInput(event) {
 }
 
 function alignDraftTimingsToAudio(duration) {
-  if (!Number.isFinite(duration) || duration < 2 || !state.draft.length) return false;
-  const ends = state.draft
-    .map((m) => (m.end != null ? m.end : m.start))
-    .filter((v) => v != null && Number.isFinite(v));
-  if (!ends.length) return false;
-  const lastEnd = Math.max(...ends);
-  if (lastEnd < 2) return false;
-  const ratio = duration / lastEnd;
-  // Only gentle rescale — corrects small clock drift vs recording length.
-  if (ratio < 0.85 || ratio > 1.2) return false;
+  if (!Number.isFinite(duration) || duration < 1 || !state.draft.length) return false;
+
+  const points = [];
   state.draft.forEach((msg) => {
-    if (msg.start != null) msg.start = Number((msg.start * ratio).toFixed(3));
-    if (msg.end != null) msg.end = Number((msg.end * ratio).toFixed(3));
+    if (Number.isFinite(msg.start)) points.push(msg.start);
+    if (Number.isFinite(msg.end)) points.push(msg.end);
+  });
+  if (points.length < 2) return false;
+
+  const minT = Math.min(...points);
+  const maxT = Math.max(...points);
+  const span = maxT - minT;
+  if (span < 0.5) return false;
+
+  const targetEnd = duration;
+  const scale = targetEnd / span;
+  const shift = -minT * scale;
+
+  const alreadyAligned =
+    Math.abs(scale - 1) < 0.02 && minT < 0.25 && Math.abs(maxT - duration) < 1;
+  if (alreadyAligned) return false;
+
+  const scaleSegment = (seg) => {
+    const times = segmentTimes(seg);
+    if (times.start == null) return seg;
+    const start = roundTime(times.start * scale + shift);
+    const end = roundTime((times.end ?? times.start) * scale + shift);
+    return {
+      ...seg,
+      start_s: start,
+      end_s: end,
+      start_time_seconds: start,
+      end_time_seconds: end,
+    };
+  };
+  state.sttSegments = (state.sttSegments || []).map(scaleSegment);
+
+  state.draft.forEach((msg, index) => {
+    if (Number.isFinite(msg.start)) msg.start = roundTime(msg.start * scale + shift);
+    if (Number.isFinite(msg.end)) msg.end = roundTime(msg.end * scale + shift);
+    refreshTurnWordTimings(index);
   });
   return true;
 }
@@ -876,7 +1594,7 @@ function isPlaybackPlaying() {
 }
 
 function scrollActiveTurnIntoView(index) {
-  if (index < 0) return;
+  if (!state.audioSyncEnabled || index < 0) return;
   const block = els.transcriptGrid.querySelector(`.turn-block[data-index="${index}"]`);
   if (!block) return;
 
@@ -906,21 +1624,18 @@ function syncHighlight() {
   const duration = getPlaybackDuration();
   updateTimeDisplays(t, duration);
 
-  // Sticky highlight: active turn is the latest whose start has been reached.
-  // Falls back to start→end windows when starts are missing.
-  let active = -1;
-  state.draft.forEach((msg, index) => {
-    if (msg.start == null || Number.isNaN(msg.start)) return;
-    if (t >= msg.start - 0.08) active = index;
-  });
-  if (active < 0) {
-    state.draft.forEach((msg, index) => {
-      if (msg.start == null || Number.isNaN(msg.start)) return;
-      const end =
-        msg.end != null && !Number.isNaN(msg.end) ? msg.end : msg.start + 1.2;
-      if (t >= msg.start - 0.02 && t < end + 0.02) active = index;
+  if (!state.audioSyncEnabled) {
+    clearActiveWordHighlight();
+    els.transcriptGrid?.querySelectorAll(".turn-block").forEach((block) => {
+      block.classList.remove("active-turn");
     });
+    if (isPlaybackPlaying()) {
+      state.highlightTimer = requestAnimationFrame(syncHighlight);
+    }
+    return;
   }
+
+  const active = updateWordHighlights(t);
 
   els.transcriptGrid.querySelectorAll(".turn-block").forEach((block) => {
     const index = Number(block.dataset.index);
@@ -1031,6 +1746,22 @@ function initWaveform(url) {
   });
 }
 
+function seekToWord(start) {
+  if (!Number.isFinite(start)) return;
+  const duration = getPlaybackDuration() || 1;
+  const target = Math.min(Math.max(0, start), Math.max(0, duration - 0.05));
+  if (state.wavesurfer) {
+    state.wavesurfer.seekTo(Math.min(0.999, target / duration));
+    if (!state.wavesurfer.isPlaying()) state.wavesurfer.play();
+  } else if (els.player && !els.player.classList.contains("hidden-audio")) {
+    els.player.currentTime = target;
+    if (els.player.paused) els.player.play().catch(() => {});
+  } else {
+    return;
+  }
+  syncHighlight();
+}
+
 function seekToTurn(index) {
   const msg = state.draft[index];
   if (!msg || msg.start == null) return;
@@ -1067,12 +1798,8 @@ function renderTranscript({ preserveEdits = true } = {}) {
           : msg.added
             ? "—"
             : "Not generated yet";
-        const timeLabel =
-          msg.start != null && !Number.isNaN(msg.start)
-            ? msg.end != null && !Number.isNaN(msg.end)
-              ? `${formatTime(msg.start)}–${formatTime(msg.end)}`
-              : formatTime(msg.start)
-            : "";
+        const startValue = formatTimeInput(msg.start);
+        const endValue = formatTimeInput(msg.end);
         const avatarLetter = msg.role === "user" ? "U" : "A";
         return `
         <div class="turn-block" data-index="${index}">
@@ -1089,11 +1816,33 @@ function renderTranscript({ preserveEdits = true } = {}) {
                 </label>
               </div>
               <div class="message-header-actions">
-                ${
-                  timeLabel
-                    ? `<button type="button" class="timing-chip" data-seek="${index}" title="Seek audio to this turn">${timeLabel}</button>`
-                    : ""
-                }
+                <div class="timing-editor" title="Edit turn timestamps (m:ss.sss)">
+                  <label class="sr-only" for="timing-start-${index}">Start time</label>
+                  <input
+                    id="timing-start-${index}"
+                    type="text"
+                    class="timing-input timing-start"
+                    data-index="${index}"
+                    value="${escapeHtml(startValue)}"
+                    placeholder="0:00.000"
+                    inputmode="decimal"
+                    aria-label="Start time"
+                  />
+                  <span class="timing-sep">–</span>
+                  <label class="sr-only" for="timing-end-${index}">End time</label>
+                  <input
+                    id="timing-end-${index}"
+                    type="text"
+                    class="timing-input timing-end"
+                    data-index="${index}"
+                    value="${escapeHtml(endValue)}"
+                    placeholder="end (m:ss.sss)"
+                    inputmode="decimal"
+                    aria-label="End time"
+                  />
+                  <button type="button" class="timing-action timing-use-playhead" data-index="${index}" title="Set start to current playback time" aria-label="Set start to playhead">⏱</button>
+                  <button type="button" class="timing-action timing-seek" data-seek="${index}" title="Seek audio to start time" aria-label="Seek audio to turn">▶</button>
+                </div>
                 <span class="message-type">${msg.added ? "added turn" : "transcript"}</span>
                 <button type="button" class="icon-action collapse-turn-btn" data-index="${index}" title="Collapse turn" aria-label="Collapse turn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -1106,17 +1855,18 @@ function renderTranscript({ preserveEdits = true } = {}) {
             <div class="message-body">
               <div class="col-card original">
                 <div class="column-label">Original</div>
-                <div class="original-text">${escapeHtml(originalContent)}</div>
+                ${renderSyncedColumn(originalContent, msg.originalWordTimings, "original", index)}
               </div>
               <div class="col-card sarvam">
                 <div class="column-label">Sarvam</div>
-                <div class="stt-text">${escapeHtml(sttContent)}</div>
+                ${renderSyncedColumn(sttContent, msg.sttWordTimings, "sarvam", index)}
               </div>
               <div class="col-card final final-col">
                 <div class="column-label">
                   <span>Final</span>
                   <span class="char-count" data-index="${index}">${(msg.content || "").length} chars</span>
                 </div>
+                <div class="final-word-host">${renderWordTrackHtml(msg.wordTimings, "final", index)}</div>
                 <textarea class="final-input" data-index="${index}" rows="4" placeholder="Edit the final transcript…">${escapeHtml(msg.content)}</textarea>
               </div>
             </div>
@@ -1174,6 +1924,7 @@ function renderTranscript({ preserveEdits = true } = {}) {
       syncDraftFromDom();
       const after = Number(btn.dataset.after);
       const prev = state.draft[after];
+      const { start, end } = defaultTimingForInsertedTurn(after);
       state.draft.splice(after + 1, 0, {
         _id: `added-${Date.now()}-${after + 1}`,
         role: prev?.role === "assistant" ? "user" : "assistant",
@@ -1182,8 +1933,8 @@ function renderTranscript({ preserveEdits = true } = {}) {
         content: "",
         originalContent: "",
         sttContent: "",
-        start: null,
-        end: null,
+        start,
+        end,
         added: true,
       });
       renderTranscript({ preserveEdits: false });
@@ -1191,8 +1942,47 @@ function renderTranscript({ preserveEdits = true } = {}) {
     };
   });
 
-  els.transcriptGrid.querySelectorAll(".timing-chip").forEach((btn) => {
+  els.transcriptGrid.querySelectorAll(".timing-use-playhead").forEach((btn) => {
+    btn.onclick = () => {
+      const index = Number(btn.dataset.index);
+      const playhead = getPlaybackTime();
+      if (!Number.isFinite(playhead) || playhead < 0) {
+        showToast("Play audio first to capture the current time");
+        return;
+      }
+      const start = roundTime(playhead);
+      const duration = getPlaybackDuration();
+      const end = roundTime(Math.min(duration || start + 2, start + 2));
+      state.draft[index].start = start;
+      state.draft[index].end = end > start ? end : roundTime(start + 0.5);
+      refreshTurnWordTimings(index);
+      renderTranscript({ preserveEdits: false });
+      updateMeta();
+    };
+  });
+
+  els.transcriptGrid.querySelectorAll(".timing-seek").forEach((btn) => {
     btn.onclick = () => seekToTurn(Number(btn.dataset.seek));
+  });
+
+  els.transcriptGrid.querySelectorAll(".timing-input").forEach((input) => {
+    input.addEventListener("change", () => {
+      const index = Number(input.dataset.index);
+      if (!state.draft[index]) return;
+      if (input.classList.contains("timing-start")) {
+        state.draft[index].start = parseTimeInput(input.value);
+      } else {
+        state.draft[index].end = parseTimeInput(input.value);
+      }
+      refreshTurnWordTimings(index);
+      updateMeta();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        input.blur();
+      }
+    });
   });
 
   els.transcriptGrid.querySelectorAll(".final-input").forEach((textarea) => {
@@ -1212,6 +2002,7 @@ function renderTranscript({ preserveEdits = true } = {}) {
   // Re-measure after layout so long Final text isn't clipped.
   requestAnimationFrame(() => {
     els.transcriptGrid.querySelectorAll(".final-input").forEach(autoResizeTextarea);
+    syncHighlight();
   });
 }
 
@@ -1226,17 +2017,29 @@ function collectFinalMessages() {
   }));
 }
 
-function snapshotFinalMessages(messages) {
-  return JSON.stringify(messages);
+function collectTimings() {
+  syncDraftFromDom();
+  return state.draft.map((msg) => ({
+    start:
+      msg.start != null && !Number.isNaN(msg.start) ? roundTime(Number(msg.start)) : null,
+    end: msg.end != null && !Number.isNaN(msg.end) ? roundTime(Number(msg.end)) : null,
+  }));
+}
+
+function snapshotDraftState() {
+  return JSON.stringify({
+    messages: collectFinalMessages(),
+    timings: collectTimings(),
+  });
 }
 
 function refreshSavedSnapshot() {
-  state.savedSnapshot = snapshotFinalMessages(collectFinalMessages());
+  state.savedSnapshot = snapshotDraftState();
 }
 
 function isDraftDirty() {
   if (!state.currentCall) return false;
-  return snapshotFinalMessages(collectFinalMessages()) !== state.savedSnapshot;
+  return snapshotDraftState() !== state.savedSnapshot;
 }
 
 function saveStatusInfo() {
@@ -1418,10 +2221,11 @@ async function saveFinal() {
   }
   try {
     const messages = collectFinalMessages();
+    const timings = collectTimings();
     const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/correct`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, timings }),
     });
     state.currentCall.edited = true;
     state.currentCall.status = "edited";
@@ -1433,6 +2237,7 @@ async function saveFinal() {
     state.currentCall.unfitAt = null;
     state.currentCall.unfitReason = "";
     state.currentCall.final_messages = result.messages || messages;
+    state.currentCall.timings = timings;
     buildDraft(state.currentCall);
     renderTranscript({ preserveEdits: false });
     refreshSavedSnapshot();
@@ -1579,7 +2384,10 @@ async function handleUpload(file) {
     await loadStats();
     await loadCalls();
     updateDatasetChrome();
-    if (confirm(`Start Sarvam STT for ${data.imported} uploaded calls?`)) {
+    if (
+      state.canManageSarvamStt &&
+      confirm(`Start Sarvam STT for ${data.imported} uploaded calls?`)
+    ) {
       await startSarvamStt();
     }
   } catch (err) {
@@ -1604,6 +2412,20 @@ async function startSarvamStt() {
     await loadStats();
   } catch (err) {
     updateSttButton(false);
+    showToast(err.message);
+  }
+}
+
+async function stopSarvamStt() {
+  try {
+    const result = await fetchJSON(apiUrl("/api/stt/stop"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    showToast(result.wasStale ? "Cleared stale Sarvam STT status" : "Sarvam STT stopped");
+    await loadStats();
+  } catch (err) {
     showToast(err.message);
   }
 }
@@ -1755,18 +2577,40 @@ function seekAudioBy(seconds) {
   syncHighlight();
 }
 
+els.transcriptGrid.addEventListener("click", (event) => {
+  const wordBtn = event.target.closest(".sync-word");
+  if (!wordBtn || !els.transcriptGrid.contains(wordBtn)) return;
+  event.preventDefault();
+  seekToWord(Number(wordBtn.dataset.start));
+});
+
 els.speedSelect.addEventListener("change", () => {
   const rate = Number(els.speedSelect.value) || 1;
   if (state.wavesurfer) state.wavesurfer.setPlaybackRate(rate);
   els.player.playbackRate = rate;
 });
 
+if (els.audioSyncToggle) {
+  els.audioSyncToggle.addEventListener("click", () => {
+    setAudioSyncEnabled(!state.audioSyncEnabled);
+  });
+}
+if (els.realignTimestampsBtn) {
+  els.realignTimestampsBtn.addEventListener("click", realignTimestampsFromStt);
+}
+updateAudioSyncChrome();
+
 els.uploadInput.addEventListener("change", () => {
   const file = els.uploadInput.files?.[0];
   handleUpload(file);
 });
 
-els.startSttBtn.addEventListener("click", startSarvamStt);
+if (els.startSttBtn) {
+  els.startSttBtn.addEventListener("click", () => {
+    if (sttRunning) stopSarvamStt();
+    else startSarvamStt();
+  });
+}
 els.exportVerifiedBtn.addEventListener("click", exportVerified);
 
 document.addEventListener("keydown", (event) => {

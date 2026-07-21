@@ -9,6 +9,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import threading
 from collections import Counter
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 
 from auth import (
     authenticate,
+    can_manage_sarvam_stt,
     current_user,
     register_user,
     require_login_before_request,
@@ -27,18 +29,24 @@ from auth import (
 import gcs_storage
 from json_format import dump_numbered, dumps_numbered
 from stt_runner import (
+    clear_stale_progress,
     is_running as stt_is_running,
     read_progress as read_stt_progress,
     sarvam_path as dataset_sarvam_path,
     start_stt_job,
+    stop_stt_job,
 )
 
 
 from transcript_utils import (
     align_stt_segments,
+    match_segments_to_turns,
     timings_from_created_at,
+    timings_from_matched_segments,
+    timings_from_stt_messages,
     timings_from_stt_segments,
     clean_saved_messages,
+    clean_saved_timings,
     default_final_messages,
     preview_text,
     visible_messages,
@@ -77,6 +85,7 @@ DATASET_META = (
     {"id": "indiamart", "label": "IndiaMART"},
     {"id": "abhfl", "label": "ABHFL"},
     {"id": "amber", "label": "Amber"},
+    {"id": "muthoot", "label": "Muthoot"},
 )
 DATASETS = tuple(item["id"] for item in DATASET_META)
 
@@ -268,6 +277,12 @@ def ingest_call_entry(
         existing["public_url"] = public_url
     if recording_url:
         existing["recordingUrl"] = recording_url
+    human_url = (extra or {}).get("humanRecordingUrl") or (extra or {}).get("human") or ""
+    agent_url = (extra or {}).get("agentRecordingUrl") or (extra or {}).get("agent") or ""
+    if human_url:
+        existing["humanRecordingUrl"] = human_url
+    if agent_url:
+        existing["agentRecordingUrl"] = agent_url
     existing.setdefault("public_url", "")
     existing.setdefault("recordingUrl", "")
     existing.setdefault("messages", [])
@@ -359,6 +374,8 @@ def apply_uploaded_calls(dataset: str, payload, *, replace: bool = False) -> int
             or ""
         )
         recording_url = item.get("recordingUrl") or item.get("recordings") or ""
+        human_url = item.get("humanRecordingUrl") or item.get("human") or ""
+        agent_url = item.get("agentRecordingUrl") or item.get("agent") or ""
 
         stt_messages = item.get("stt_messages") or item.get("sarvam_messages")
         stt_segments = item.get("segments") or item.get("stt_segments")
@@ -378,6 +395,10 @@ def apply_uploaded_calls(dataset: str, payload, *, replace: bool = False) -> int
             stt_messages=stt_messages if isinstance(stt_messages, list) else None,
             stt_segments=stt_segments if isinstance(stt_segments, list) else None,
             timings=timings if isinstance(timings, list) else None,
+            extra={
+                "humanRecordingUrl": human_url,
+                "agentRecordingUrl": agent_url,
+            },
         )
 
         count += 1
@@ -461,13 +482,20 @@ def load_data() -> None:
     gcs_storage.hydrate_users_file(UPLOADS_DIR / "users.json", prefer_remote=True)
     # Warm the default tab only — other tabs hydrate on first request.
     ensure_dataset_loaded("indiamart")
+    for name in DATASETS:
+        clear_stale_progress(UPLOADS_DIR, name)
     print(f"Storage: {gcs_storage.status()}", flush=True)
 
 
 def load_uploaded_dataset(dataset: str) -> None:
     path = upload_calls_path(dataset)
     if not path.exists():
-        return
+        bootstrap = BASE_DIR / "data" / f"{dataset}.json"
+        if bootstrap.exists():
+            ensure_dataset_dirs(dataset)
+            shutil.copy2(bootstrap, path)
+        else:
+            return
     try:
         with path.open(encoding="utf-8") as handle:
             payload = json.load(handle)
@@ -563,8 +591,9 @@ def load_empty_clients() -> None:
 
 
 def read_dataset_progress(dataset: str) -> dict:
-    progress = read_stt_progress(UPLOADS_DIR, dataset)
+    progress = clear_stale_progress(UPLOADS_DIR, dataset)
     if progress.get("total") or progress.get("running") or progress.get("savedTotal"):
+        progress["running"] = stt_is_running(dataset) or bool(progress.get("running"))
         return progress
     if dataset == "indiamart":
         path = first_existing(
@@ -649,7 +678,7 @@ def get_turn_timings(
     turn_count: int,
     original_messages: list[dict] | None = None,
 ) -> list[dict]:
-    """Prefer Sarvam STT audio timestamps when available; else createdAt anchors."""
+    """Prefer text-matched Sarvam segment bounds; createdAt is fallback."""
     originals = original_messages or []
     entry = sarvam_by_dataset.get(dataset, {}).get(call_id) or {}
     segments = entry.get("segments") or []
@@ -658,23 +687,41 @@ def get_turn_timings(
         diarized = raw.get("diarized_transcript") or {}
         segments = diarized.get("entries") or []
 
-    stt_timings = timings_from_stt_segments(segments, turn_count) if segments else []
-    stt_hits = sum(1 for t in stt_timings if t.get("start") is not None)
-    # Use STT when it covers most turns (best audio alignment).
-    if stt_hits and stt_hits >= max(1, int(turn_count * 0.6)):
-        return stt_timings
+    if segments and originals:
+        turn_segments = match_segments_to_turns(originals, segments)
+        matched = timings_from_matched_segments(turn_segments)
+        matched_hits = sum(1 for t in matched if t.get("start") is not None)
+        if matched_hits >= max(1, int(turn_count * 0.5)):
+            while len(matched) < turn_count:
+                matched.append({"start": None, "end": None})
+            return matched[:turn_count]
+
+    stt_messages = _messages_from_stt_entry(entry, originals)
+    if stt_messages:
+        aligned = timings_from_stt_messages(stt_messages)
+        aligned_hits = sum(1 for t in aligned if t.get("start") is not None)
+        if aligned_hits >= max(1, int(turn_count * 0.6)):
+            while len(aligned) < turn_count:
+                aligned.append({"start": None, "end": None})
+            return aligned[:turn_count]
 
     from_created = timings_from_created_at(originals)
-    if from_created and any(t.get("start") is not None for t in from_created):
-        timings = list(from_created)
-        # Fill gaps from STT when a turn is missing createdAt.
-        while len(timings) < turn_count:
-            timings.append({"start": None, "end": None})
-        if stt_timings:
-            for i in range(min(len(timings), len(stt_timings))):
-                if timings[i].get("start") is None and stt_timings[i].get("start") is not None:
-                    timings[i] = stt_timings[i]
-        return timings[:turn_count]
+    created_hits = sum(1 for t in from_created if t.get("start") is not None)
+    if from_created and created_hits >= max(1, int(turn_count * 0.6)):
+        while len(from_created) < turn_count:
+            from_created.append({"start": None, "end": None})
+        return from_created[:turn_count]
+
+    segments = entry.get("segments") or []
+    if not segments:
+        raw = entry.get("raw") or {}
+        diarized = raw.get("diarized_transcript") or {}
+        segments = diarized.get("entries") or []
+
+    stt_timings = timings_from_stt_segments(segments, turn_count) if segments else []
+    stt_hits = sum(1 for t in stt_timings if t.get("start") is not None)
+    if stt_hits and stt_hits >= max(1, int(turn_count * 0.6)):
+        return stt_timings
 
     if stt_timings:
         return stt_timings
@@ -733,9 +780,39 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         len(final_messages),
         len(stt_messages or []),
     )
-    timings = get_turn_timings(
-        dataset, call_id, turn_count, original_messages=original_messages
+    sarvam_entry = sarvam_by_dataset.get(dataset, {}).get(call_id) or {}
+    stt_segments = sarvam_entry.get("segments") or []
+    if not stt_segments:
+        raw = sarvam_entry.get("raw") or {}
+        diarized = raw.get("diarized_transcript") or {}
+        stt_segments = diarized.get("entries") or []
+
+    saved_timings = (
+        clean_saved_timings(saved.get("timings"), len(final_messages))
+        if saved and isinstance(saved.get("timings"), list)
+        else None
     )
+    turn_segment_groups = (
+        match_segments_to_turns(original_messages, stt_segments)
+        if stt_segments and original_messages
+        else []
+    )
+    while len(turn_segment_groups) < len(final_messages):
+        turn_segment_groups.append([])
+    turn_segment_groups = turn_segment_groups[: len(final_messages)]
+
+    if saved_timings and len(saved_timings) == len(final_messages):
+        timings = saved_timings
+    else:
+        if turn_segment_groups and any(group for group in turn_segment_groups):
+            timings = timings_from_matched_segments(turn_segment_groups)
+        else:
+            timings = get_turn_timings(
+                dataset, call_id, turn_count, original_messages=original_messages
+            )
+        while len(timings) < len(final_messages):
+            timings.append({"start": None, "end": None})
+        timings = timings[: len(final_messages)]
 
     return {
         "id": call_id,
@@ -746,8 +823,10 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         "hasStt": has_stt,
         "messages": original_messages,
         "stt_messages": stt_messages,
+        "stt_segments": stt_segments,
         "final_messages": final_messages,
         "timings": timings,
+        "timing_segments": turn_segment_groups,
         "edited": call_id in corrections[dataset],
         "status": review_status(saved),
         "editedBy": (saved or {}).get("editedBy") or "",
@@ -975,7 +1054,12 @@ def logout():
 @app.route("/api/me")
 def me():
     user = current_user()
-    return jsonify({"user": user})
+    return jsonify(
+        {
+            "user": user,
+            "canManageSarvamStt": can_manage_sarvam_stt(user),
+        }
+    )
 
 
 @app.route("/api/storage")
@@ -996,6 +1080,7 @@ def index():
         datasets=DATASET_META,
         totals=totals,
         current_user=current_user(),
+        can_manage_sarvam=can_manage_sarvam_stt(),
     )
 
 
@@ -1174,8 +1259,14 @@ def save_correct(call_id: str):
         return jsonify({"error": "messages array required"}), 400
 
     cleaned = clean_saved_messages(messages)
+    raw_timings = payload.get("timings")
+    timings = (
+        clean_saved_timings(raw_timings, len(cleaned))
+        if isinstance(raw_timings, list)
+        else None
+    )
     try:
-        corrections[dataset][call_id] = {
+        entry = {
             "number": recording_number(dataset, call_id),
             "callLogId": call_id,
             "messages": cleaned,
@@ -1189,6 +1280,9 @@ def save_correct(call_id: str):
             "unfitBy": "",
             "unfitAt": None,
         }
+        if timings is not None:
+            entry["timings"] = timings
+        corrections[dataset][call_id] = entry
         save_corrections(dataset, call_id=call_id)
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
@@ -1438,6 +1532,9 @@ def export_verified():
 
 @app.route("/api/stt/start", methods=["POST"])
 def start_sarvam_stt():
+    if not can_manage_sarvam_stt():
+        return jsonify({"error": "Only admins can start Sarvam STT"}), 403
+
     dataset = resolve_dataset()
     if not call_order[dataset]:
         return jsonify({"error": "No calls in this dataset. Upload JSON first."}), 400
@@ -1455,7 +1552,9 @@ def start_sarvam_stt():
         calls.append(
             {
                 "id": call_id,
-                "public_url": call.get("public_url") or "",
+                "public_url": call.get("public_url") or call.get("recordingUrl") or "",
+                "human": call.get("humanRecordingUrl") or "",
+                "agent": call.get("agentRecordingUrl") or "",
                 "messages": call.get("messages") or [],
             }
         )
@@ -1472,6 +1571,18 @@ def start_sarvam_stt():
         workers=workers,
         resume=bool(resume),
     )
+    if not result.get("ok"):
+        return jsonify(result), 409
+    return jsonify(result)
+
+
+@app.route("/api/stt/stop", methods=["POST"])
+def stop_sarvam_stt():
+    if not can_manage_sarvam_stt():
+        return jsonify({"error": "Only admins can stop Sarvam STT"}), 403
+
+    dataset = resolve_dataset()
+    result = stop_stt_job(dataset=dataset, uploads_dir=UPLOADS_DIR)
     if not result.get("ok"):
         return jsonify(result), 409
     return jsonify(result)

@@ -13,6 +13,7 @@ from flask import jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 DEFAULT_USERS = ("ayushi", "kriti", "akash", "yash")
+SARVAM_STT_ADMIN_USERS = frozenset({"ayushi"})
 USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.IGNORECASE)
 
@@ -227,6 +228,12 @@ def current_user() -> str | None:
     # Session user missing locally — refresh once from GCS.
     store = load_user_store(force_refresh=True)
     return user if user in store else None
+
+
+def can_manage_sarvam_stt(user: str | None = None) -> bool:
+    """Only designated admins may start/stop Sarvam STT jobs from the UI."""
+    identity = normalize_identity(user if user is not None else (current_user() or ""))
+    return identity in SARVAM_STT_ADMIN_USERS
 
 
 def login_required(view):

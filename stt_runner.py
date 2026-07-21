@@ -29,11 +29,42 @@ USE_DIARIZED_TRACKS = (os.environ.get("SARVAM_USE_DIARIZED_TRACKS") or "1").stri
 
 _jobs_lock = threading.Lock()
 _running: dict[str, bool] = {}
+_cancel: dict[str, threading.Event] = {}
+_executors: dict[str, ThreadPoolExecutor] = {}
 
 
 def is_running(dataset: str) -> bool:
     with _jobs_lock:
         return bool(_running.get(dataset))
+
+
+def clear_stale_progress(uploads_dir: Path, dataset: str) -> dict:
+    """Mark progress as not running when no in-process job is active."""
+    progress = read_progress(uploads_dir, dataset)
+    if progress.get("running") and not is_running(dataset):
+        return write_progress(uploads_dir, dataset, running=False)
+    return progress
+
+
+def stop_stt_job(*, dataset: str, uploads_dir: Path) -> dict:
+    """Request cancellation of the active STT job for a dataset."""
+    with _jobs_lock:
+        active = bool(_running.get(dataset))
+        cancel = _cancel.get(dataset)
+        executor = _executors.get(dataset)
+
+    if cancel:
+        cancel.set()
+    if executor is not None:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    if active:
+        return {"ok": True, "stopped": True, "dataset": dataset, "running": True}
+
+    progress = clear_stale_progress(uploads_dir, dataset)
+    if progress.get("running"):
+        return {"ok": True, "stopped": True, "dataset": dataset, "wasStale": True}
+    return {"ok": False, "error": "STT is not running for this dataset", "running": False}
 
 
 def progress_path(uploads_dir: Path, dataset: str) -> Path:
@@ -168,11 +199,18 @@ def _transcribe_one(call: dict) -> dict:
 
     source = "recording"
     if USE_DIARIZED_TRACKS and human_url and agent_url:
-        segments, raw_payload = transcribe_diarized_tracks(
-            agent_url=agent_url,
-            human_url=human_url,
-        )
-        source = "diarized_tracks"
+        try:
+            segments, raw_payload = transcribe_diarized_tracks(
+                agent_url=agent_url,
+                human_url=human_url,
+            )
+            source = "diarized_tracks"
+        except Exception:
+            if public_url:
+                segments, raw_payload = transcribe_audio_url(public_url)
+                source = "recording"
+            else:
+                raise
     elif public_url:
         segments, raw_payload = transcribe_audio_url(public_url)
     else:
@@ -254,9 +292,15 @@ def start_stt_job(
         workers=worker_count,
     )
 
+    cancel = threading.Event()
+    with _jobs_lock:
+        _cancel[dataset] = cancel
+
     def runner() -> None:
         completed = 0
         failed = 0
+        cancelled = 0
+        executor: ThreadPoolExecutor | None = None
         try:
             if not pending:
                 write_progress(
@@ -273,34 +317,43 @@ def start_stt_job(
                 )
                 return
 
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = {
-                    executor.submit(_transcribe_one, call): call for call in pending
-                }
-                for future in as_completed(futures):
-                    call = futures[future]
-                    call_id = call["id"]
-                    try:
-                        entry = future.result()
-                        entry["number"] = call_order.index(call_id) + 1 if call_id in call_order else None
-                        store.save_entry(call_id, entry)
-                        on_saved(call_id, entry)
-                        completed += 1
-                    except Exception:
-                        failed += 1
-                    write_progress(
-                        uploads_dir,
-                        dataset,
-                        running=True,
-                        total=total,
-                        skipped=skipped,
-                        pending=len(pending),
-                        completed=completed,
-                        failed=failed,
-                        savedTotal=store.count(),
-                        workers=worker_count,
-                    )
+            executor = ThreadPoolExecutor(max_workers=worker_count)
+            with _jobs_lock:
+                _executors[dataset] = executor
+            futures = {
+                executor.submit(_transcribe_one, call): call for call in pending
+            }
+            for future in as_completed(futures):
+                if cancel.is_set():
+                    for pending_future in futures:
+                        if pending_future.cancel():
+                            cancelled += 1
+                    break
+                call = futures[future]
+                call_id = call["id"]
+                try:
+                    entry = future.result()
+                    entry["number"] = call_order.index(call_id) + 1 if call_id in call_order else None
+                    store.save_entry(call_id, entry)
+                    on_saved(call_id, entry)
+                    completed += 1
+                except Exception:
+                    failed += 1
+                write_progress(
+                    uploads_dir,
+                    dataset,
+                    running=True,
+                    total=total,
+                    skipped=skipped,
+                    pending=max(0, len(pending) - completed - failed - cancelled),
+                    completed=completed,
+                    failed=failed,
+                    savedTotal=store.count(),
+                    workers=worker_count,
+                )
         finally:
+            if executor is not None:
+                executor.shutdown(wait=False, cancel_futures=True)
             write_progress(
                 uploads_dir,
                 dataset,
@@ -315,6 +368,8 @@ def start_stt_job(
             )
             with _jobs_lock:
                 _running[dataset] = False
+                _cancel.pop(dataset, None)
+                _executors.pop(dataset, None)
 
     threading.Thread(target=runner, daemon=True, name=f"stt-{dataset}").start()
     return {

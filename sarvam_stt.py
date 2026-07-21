@@ -19,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -301,7 +302,57 @@ def _suffix_from_response(url: str, content_type: str) -> str:
     return ".ogg"
 
 
+def _parse_gcs_url(url: str) -> tuple[str, str] | None:
+    """Return (bucket, object_path) for gs:// or storage.googleapis.com URLs."""
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("gs://"):
+        without = raw[5:]
+        bucket, _, path = without.partition("/")
+        if bucket and path:
+            return bucket, unquote(path)
+        return None
+
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    if host not in {"storage.googleapis.com", "storage.cloud.google.com"}:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return None
+    return parts[0], unquote("/".join(parts[1:]))
+
+
+def _download_gcs_audio(url: str, dest: Path) -> bool:
+    """Download a private GCS object using Application Default Credentials."""
+    parsed = _parse_gcs_url(url)
+    if not parsed:
+        return False
+    bucket_name, object_name = parsed
+    try:
+        from google.cloud import storage
+    except ImportError:
+        return False
+
+    try:
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(object_name)
+        if not blob.exists():
+            return False
+        blob.download_to_filename(str(dest))
+        return dest.exists() and dest.stat().st_size > 0
+    except Exception:
+        return False
+
+
 def _download_audio(url: str, dest: Path) -> None:
+    # Signed URLs must be fetched over HTTP with query params intact.
+    if "X-Goog-Signature=" in url or "X-Goog-Algorithm=" in url:
+        pass
+    elif _download_gcs_audio(url, dest):
+        return
+
     last_error: Exception | None = None
     for attempt in range(1, SARVAM_DOWNLOAD_RETRIES + 1):
         try:

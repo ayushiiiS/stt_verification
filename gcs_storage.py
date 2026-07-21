@@ -42,6 +42,7 @@ AGENT_FOLDERS: dict[str, str] = {
     "indiamart": "IndiaMART",
     "abhfl": "ABHFL",
     "amber": "Amber",
+    "muthoot": "Muthoot",
 }
 
 FOLDER_TO_DATASET: dict[str, str] = {v.lower(): k for k, v in AGENT_FOLDERS.items()}
@@ -850,6 +851,64 @@ def agent_aggregate_key(dataset: str, filename: str) -> str:
     return f"{agent_folder(dataset)}/_aggregate/{filename}"
 
 
+def aggregate_version_prefix(dataset: str, filename: str) -> str:
+    stem = filename[:-5] if filename.endswith(".json") else filename
+    return f"{agent_folder(dataset)}/_aggregate/{stem}/"
+
+
+def aggregate_version_key(dataset: str, filename: str, stamp: str | None = None) -> str:
+    stamp = (
+        (stamp or "").strip().replace(":", "-").replace("+", "p")
+        or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    )
+    stem = filename[:-5] if filename.endswith(".json") else filename
+    return f"{aggregate_version_prefix(dataset, filename)}{stamp}.json"
+
+
+def download_latest_aggregate(dataset: str, filename: str) -> Any | None:
+    """Load the newest versioned aggregate snapshot, then fall back to the flat key."""
+    prefix = aggregate_version_prefix(dataset, filename)
+    names = sorted(list_prefix(prefix), reverse=True)
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        payload = download_json(name)
+        if payload is not None:
+            return payload
+    return download_json(agent_aggregate_key(dataset, filename))
+
+
+def push_aggregate_versioned(uploads_dir: Path, dataset: str, filename: str) -> bool:
+    """Upload an aggregate JSON via create-only versioned keys (no delete required)."""
+    local = uploads_dir / dataset / filename
+    if not local.exists():
+        return False
+    version_key = aggregate_version_key(dataset, filename)
+    ok = upload_file(version_key, local, overwrite=False)
+    try:
+        mirror_local(local, agent_aggregate_key(dataset, filename))
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"GCS aggregate flat mirror skipped ({dataset}/{filename}): {exc}",
+            flush=True,
+        )
+    return ok
+
+
+def hydrate_aggregate_local(
+    uploads_dir: Path, dataset: str, filename: str, *, prefer_remote: bool = True
+) -> bool:
+    """Write the newest remote aggregate snapshot to the local uploads path."""
+    local = uploads_dir / dataset / filename
+    if not prefer_remote and local.exists():
+        return False
+    payload = download_latest_aggregate(dataset, filename)
+    if payload is None:
+        return hydrate_local(local, agent_aggregate_key(dataset, filename), prefer_remote=prefer_remote)
+    atomic_write_json(local, payload)
+    return True
+
+
 def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = True) -> dict:
     """Hydrate local dataset from per-call GCS layout (legacy flat files as fallback).
 
@@ -892,9 +951,9 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
     got_calls = False
 
     def _pull(name: str) -> tuple[str, bool]:
-        local = uploads_dir / dataset / name
-        key = agent_aggregate_key(dataset, name)
-        return name, hydrate_local(local, key, prefer_remote=True)
+        return name, hydrate_aggregate_local(
+            uploads_dir, dataset, name, prefer_remote=True
+        )
 
     # Parallel pull keeps cold starts under the function timeout.
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -960,9 +1019,9 @@ def push_dataset_file(uploads_dir: Path, dataset: str, filename: str) -> bool:
     if not local.exists():
         return False
 
-    # Keep a single-file snapshot for fast Vercel cold starts.
+    # Keep a versioned snapshot for fast Vercel cold starts (create-only; no delete).
     try:
-        mirror_local(local, agent_aggregate_key(dataset, filename))
+        push_aggregate_versioned(uploads_dir, dataset, filename)
     except Exception as exc:  # noqa: BLE001
         print(f"GCS aggregate mirror failed ({dataset}/{filename}): {exc}", flush=True)
 
@@ -1172,6 +1231,15 @@ def migrate_local_uploads_to_gcs(
         )
         if progress_path.exists():
             mirror_local(progress_path, stt_progress_key(dataset))
+
+        # Fast-path aggregates for Vercel cold starts (serverless skips per-call rebuild).
+        for filename in (
+            "calls.json",
+            "sarvam_transcripts.json",
+            "corrected_transcripts.json",
+            "stt_progress.json",
+        ):
+            push_dataset_file(uploads_dir, dataset, filename)
 
         summary[dataset] = {
             "agent": agent_folder(dataset),

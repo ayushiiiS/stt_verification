@@ -20,7 +20,7 @@ import gcs_storage
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOADS_DIR = BASE_DIR / "uploads"
-DATASETS = ("indiamart", "abhfl", "amber")
+DATASETS = ("indiamart", "abhfl", "amber", "muthoot")
 
 
 def main() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 
 CALL_LIMIT = 1000
 
@@ -63,18 +64,232 @@ def preview_text(messages: list[dict], limit: int = 160) -> str:
     return "(no transcript text)"
 
 
+def _as_float(value) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_match_text(text: str) -> str:
+    text = str(text or "").strip().lower()
+    return re.sub(r"\s+", " ", text)
+
+
+def _text_similarity(left: str, right: str) -> float:
+    a = _normalize_match_text(left)
+    b = _normalize_match_text(right)
+    if not a or not b:
+        return 0.0
+    greetings = {"hello", "hi", "हेलो", "हैलो", "haan", "हाँ", "हां", "han"}
+    a_greet = a.strip("?.!, ")
+    b_greet = b.strip("?.!, ")
+    if a_greet in greetings and b_greet in greetings:
+        return 0.96
+    if a in b or b in a:
+        shorter = min(len(a), len(b))
+        longer = max(len(a), len(b))
+        return 0.88 + 0.12 * (shorter / longer)
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _segment_start(seg: dict) -> float | None:
+    return _as_float(
+        seg.get("start_s")
+        if seg.get("start_s") is not None
+        else seg.get("start_time_seconds")
+        if seg.get("start_time_seconds") is not None
+        else seg.get("start")
+    )
+
+
+def _segment_end(seg: dict) -> float | None:
+    return _as_float(
+        seg.get("end_s")
+        if seg.get("end_s") is not None
+        else seg.get("end_time_seconds")
+        if seg.get("end_time_seconds") is not None
+        else seg.get("end")
+    )
+
+
+def _segment_content(seg: dict) -> str:
+    return str(seg.get("content") or seg.get("transcript") or "").strip()
+
+
+def match_segments_to_turns(
+    original_messages: list[dict],
+    segments: list[dict],
+    *,
+    lookahead: int = 12,
+    min_score: float = 0.3,
+) -> list[list[dict]]:
+    """Match each Original turn to STT segments by text similarity + time order."""
+    if not original_messages or not segments:
+        return [[] for _ in original_messages]
+
+    sorted_segs = sorted(
+        segments,
+        key=lambda seg: (_segment_start(seg) or 1e18, _segment_end(seg) or 1e18),
+    )
+
+    assignments: list[list[dict]] = []
+    used: set[int] = set()
+    last_anchor = -1.0
+
+    for orig in original_messages:
+        content = str(orig.get("content") or "").strip()
+        role = str(orig.get("role") or "")
+        matched: list[dict] = []
+
+        if not content:
+            assignments.append(matched)
+            continue
+
+        best_i: int | None = None
+        word_count = len(content.split())
+        threshold = 0.22 if word_count <= 2 else min_score
+        candidates: list[tuple[float, float, int]] = []
+
+        for i, seg in enumerate(sorted_segs):
+            if i in used:
+                continue
+            seg_role = str(seg.get("role") or "")
+            if (
+                role in {"assistant", "user"}
+                and seg_role in {"assistant", "user"}
+                and seg_role != role
+            ):
+                continue
+            seg_text = _segment_content(seg)
+            score = _text_similarity(content, seg_text)
+            seg_words = max(1, len(seg_text.split()))
+            if word_count > 3 and seg_words < word_count * 0.2:
+                score *= 0.45
+            if score < threshold:
+                continue
+            start = _segment_start(seg) or 0.0
+            candidates.append((score, start, i))
+
+        if candidates:
+            candidates.sort(key=lambda item: (-item[0], item[1]))
+            best_score = candidates[0][0]
+            top = [item for item in candidates if item[0] >= best_score - 0.04]
+            if last_anchor >= 0:
+                lookback = 18.0 if word_count <= 3 else 0.5
+                ordered = [item for item in top if item[1] >= last_anchor - lookback]
+                pick_from = ordered or top
+            else:
+                pick_from = top
+            pick_from.sort(key=lambda item: (item[1], -item[0]))
+            best_i = pick_from[0][2]
+        else:
+            for i, seg in enumerate(sorted_segs):
+                if i in used:
+                    continue
+                seg_role = str(seg.get("role") or "")
+                if (
+                    role in {"assistant", "user"}
+                    and seg_role in {"assistant", "user"}
+                    and seg_role != role
+                ):
+                    continue
+                if last_anchor >= 0 and (_segment_start(seg) or 0) < last_anchor - 18.0:
+                    continue
+                best_i = i
+                break
+
+        if best_i is not None:
+            used.add(best_i)
+            matched.append(sorted_segs[best_i])
+            seg_start = _segment_start(sorted_segs[best_i])
+            seg_end = _segment_end(sorted_segs[best_i])
+            if seg_end is not None:
+                last_anchor = seg_end
+            elif seg_start is not None:
+                last_anchor = seg_start
+            combined = _segment_content(sorted_segs[best_i])
+            orig_words = len(content.split())
+
+            while len(matched) < 4 and len(combined.split()) < orig_words * 0.55:
+                nxt_i = best_i + len(matched)
+                if nxt_i >= len(sorted_segs) or nxt_i in used:
+                    break
+                seg = sorted_segs[nxt_i]
+                seg_role = str(seg.get("role") or "")
+                if (
+                    role in {"assistant", "user"}
+                    and seg_role in {"assistant", "user"}
+                    and seg_role != role
+                ):
+                    break
+                prev_end = _segment_end(matched[-1])
+                nxt_start = _segment_start(seg)
+                if (
+                    prev_end is not None
+                    and nxt_start is not None
+                    and nxt_start - prev_end > 2.5
+                ):
+                    break
+                used.add(nxt_i)
+                matched.append(seg)
+                combined = f"{combined} {_segment_content(seg)}".strip()
+                end = _segment_end(seg)
+                if end is not None:
+                    last_anchor = max(last_anchor, end)
+
+        assignments.append(matched)
+
+    return assignments
+
+
+def timings_from_matched_segments(turn_segments: list[list[dict]]) -> list[dict]:
+    timings: list[dict] = []
+    for segs in turn_segments:
+        if not segs:
+            timings.append({"start": None, "end": None})
+            continue
+        starts = [value for seg in segs if (value := _segment_start(seg)) is not None]
+        ends = [value for seg in segs if (value := _segment_end(seg)) is not None]
+        timings.append(
+            {
+                "start": min(starts) if starts else None,
+                "end": max(ends) if ends else None,
+            }
+        )
+    return timings
+
+
 def align_stt_segments(
     original_messages: list[dict], segments: list[dict]
 ) -> list[dict]:
-    """Map STT segments onto original turns.
+    """Map STT segments onto original turns using text similarity."""
+    assignments = match_segments_to_turns(original_messages, segments)
+    aligned: list[dict] = []
+    for orig, segs in zip(original_messages, assignments):
+        entry = {**orig}
+        if segs:
+            entry["content"] = " ".join(
+                text for seg in segs if (text := _segment_content(seg))
+            ).strip()
+            starts = [value for seg in segs if (value := _segment_start(seg)) is not None]
+            ends = [value for seg in segs if (value := _segment_end(seg)) is not None]
+            if starts:
+                entry["start_s"] = min(starts)
+            if ends:
+                entry["end_s"] = max(ends)
+        else:
+            entry["content"] = ""
+        aligned.append(entry)
+    return aligned
 
-    Prefer role-aware matching (next same-role segment) when segments carry
-    assistant/user roles — important for human/agent track merges. Fall back
-    to sequential index mapping otherwise.
 
-    When a role has more STT segments than original turns, adjacent segments
-    are merged so no transcript text is dropped.
-    """
+def _align_stt_segments_role_pool(
+    original_messages: list[dict], segments: list[dict]
+) -> list[dict]:
+    """Legacy role-pool alignment (kept for reference)."""
     role_aware = any(
         str(seg.get("role") or "") in {"assistant", "user"} for seg in segments
     )
@@ -167,15 +382,6 @@ def _fit_segments_to_count(segments: list[dict], target: int) -> list[dict]:
     return segs
 
 
-def _as_float(value) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def timings_from_created_at(messages: list[dict]) -> list[dict]:
     """Map turns onto audio using message createdAt as absolute-ish anchors.
 
@@ -235,8 +441,34 @@ def timings_from_created_at(messages: list[dict]) -> list[dict]:
     return result
 
 
+def timings_from_stt_messages(messages: list[dict]) -> list[dict]:
+    """Turn timings from role-aligned STT messages (merged segment boundaries)."""
+    timings: list[dict] = []
+    for msg in messages:
+        start = _as_float(
+            msg.get("start_s")
+            if msg.get("start_s") is not None
+            else msg.get("start_time_seconds")
+            if msg.get("start_time_seconds") is not None
+            else msg.get("start")
+        )
+        end = _as_float(
+            msg.get("end_s")
+            if msg.get("end_s") is not None
+            else msg.get("end_time_seconds")
+            if msg.get("end_time_seconds") is not None
+            else msg.get("end")
+        )
+        timings.append({"start": start, "end": end})
+    return timings
+
+
 def timings_from_stt_segments(segments: list[dict], turn_count: int) -> list[dict]:
-    """Map STT segment start_s/end_s (or Sarvam entry fields) onto turn slots."""
+    """Map STT segment start_s/end_s onto turn slots by index (fallback only).
+
+    Prefer timings_from_stt_messages when aligned STT messages exist — raw
+    segment count often differs from turn count after role-aware merging.
+    """
     timings: list[dict] = []
     for i in range(turn_count):
         if i >= len(segments):
@@ -289,3 +521,19 @@ def clean_saved_messages(edited_messages: list[dict]) -> list[dict]:
             }
         )
     return cleaned
+
+
+def clean_saved_timings(raw_timings: list | None, turn_count: int) -> list[dict]:
+    """Normalize per-turn timings saved from the review UI."""
+    timings: list[dict] = []
+    items = raw_timings if isinstance(raw_timings, list) else []
+    for i in range(turn_count):
+        entry = items[i] if i < len(items) and isinstance(items[i], dict) else {}
+        start = _as_float(entry.get("start"))
+        end = _as_float(entry.get("end"))
+        if start is not None:
+            start = round(start, 3)
+        if end is not None:
+            end = round(end, 3)
+        timings.append({"start": start, "end": end})
+    return timings
