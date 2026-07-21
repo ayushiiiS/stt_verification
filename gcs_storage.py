@@ -53,6 +53,7 @@ SARVAM_NAME = "transcript_sarvam.json"
 SARVAM_VERSION_PREFIX = "transcript_sarvam/"
 FINAL_NAME = "transcript_final.json"
 FINAL_VERSION_PREFIX = "transcript_final/"
+LABELS_NAME = "labels.json"
 META_NAME = "meta.json"
 
 _client = None
@@ -370,6 +371,18 @@ def download_transcript_sarvam(dataset: str, call_id: str) -> dict | None:
         ):
             return payload
     return download_json(call_object_key(dataset, call_id, SARVAM_NAME))
+
+
+def push_labels(
+    dataset: str, call_id: str, payload: dict, *, overwrite: bool = True
+) -> bool:
+    return push_json(
+        call_object_key(dataset, call_id, LABELS_NAME), payload, overwrite=overwrite
+    )
+
+
+def download_labels(dataset: str, call_id: str) -> dict | None:
+    return download_json(call_object_key(dataset, call_id, LABELS_NAME))
 
 
 def push_transcript_final(
@@ -937,6 +950,8 @@ COMPANION_AGGREGATES = (
     "sarvam_transcripts.json",
     "corrected_transcripts.json",
     "stt_progress.json",
+    "call_labels.json",
+    "label_progress.json",
 )
 
 
@@ -1001,6 +1016,8 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
         "corrected_transcripts.json",
         "sarvam_transcripts.json",
         "stt_progress.json",
+        "call_labels.json",
+        "label_progress.json",
     )
     got_calls = False
 

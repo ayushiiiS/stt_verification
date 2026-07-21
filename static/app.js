@@ -24,10 +24,21 @@ const state = {
   perPage: 50,
   search: "",
   status: "all",
+  domain: "",
+  subdomain: "",
+  labelStatus: "all",
   sort: "number",
   selectedId: null,
+  selectedCallIds: new Set(),
+  exportScope: "selected",
   currentCall: null,
   draft: [],
+  labelDraft: {
+    domain: "",
+    subdomain: "",
+    dirty: false,
+  },
+  labelSuggestions: { domains: [], subdomains: [], byDomain: {} },
   searchTimer: null,
   phraseTimer: null,
   activeSuggestIndex: -1,
@@ -46,6 +57,7 @@ const state = {
   currentUser: "",
   lastStats: null,
   canManageSarvamStt: document.body.dataset.canManageSarvam === "true",
+  canManageLabelLlm: document.body.dataset.canManageLabel === "true",
   audioSyncEnabled: readAudioSyncPreference(),
 };
 
@@ -57,8 +69,14 @@ const els = {
   progressPanel: document.getElementById("progressPanel"),
   progressFill: document.getElementById("progressFill"),
   progressMeta: document.getElementById("progressMeta"),
+  labelProgressPanel: document.getElementById("labelProgressPanel"),
+  labelProgressFill: document.getElementById("labelProgressFill"),
+  labelProgressMeta: document.getElementById("labelProgressMeta"),
   search: document.getElementById("search"),
   statusFilter: document.getElementById("statusFilter"),
+  domainFilter: document.getElementById("domainFilter"),
+  subdomainFilter: document.getElementById("subdomainFilter"),
+  labelStatusFilter: document.getElementById("labelStatusFilter"),
   sortSelect: document.getElementById("sortSelect"),
   callList: document.getElementById("callList"),
   pagination: document.getElementById("pagination"),
@@ -87,7 +105,30 @@ const els = {
   uploadInput: document.getElementById("uploadInput"),
   uploadHint: document.getElementById("uploadHint"),
   startSttBtn: document.getElementById("startSttBtn"),
-  exportVerifiedBtn: document.getElementById("exportVerifiedBtn"),
+  startLabelBtn: document.getElementById("startLabelBtn"),
+  exportDataBtn: document.getElementById("exportDataBtn"),
+  exportModal: document.getElementById("exportModal"),
+  closeExportModal: document.getElementById("closeExportModal"),
+  cancelExportBtn: document.getElementById("cancelExportBtn"),
+  confirmExportBtn: document.getElementById("confirmExportBtn"),
+  exportStatusFilter: document.getElementById("exportStatusFilter"),
+  exportSelectedCount: document.getElementById("exportSelectedCount"),
+  exportFilteredCount: document.getElementById("exportFilteredCount"),
+  exportAllCount: document.getElementById("exportAllCount"),
+  exportHint: document.getElementById("exportHint"),
+  selectAllPage: document.getElementById("selectAllPage"),
+  selectionCount: document.getElementById("selectionCount"),
+  labelPanel: document.getElementById("labelPanel"),
+  labelStatusChip: document.getElementById("labelStatusChip"),
+  labelDomainInput: document.getElementById("labelDomainInput"),
+  labelSubdomainInput: document.getElementById("labelSubdomainInput"),
+  labelDomainSuggestions: document.getElementById("labelDomainSuggestions"),
+  labelSubdomainSuggestions: document.getElementById("labelSubdomainSuggestions"),
+  labelAutoHint: document.getElementById("labelAutoHint"),
+  saveLabelBtn: document.getElementById("saveLabelBtn"),
+  resetLabelBtn: document.getElementById("resetLabelBtn"),
+  clearLabelBtn: document.getElementById("clearLabelBtn"),
+  rerunLabelBtn: document.getElementById("rerunLabelBtn"),
   currentUser: document.getElementById("currentUser"),
   suggestPopup: document.getElementById("suggestPopup"),
   toast: document.getElementById("toast"),
@@ -240,6 +281,7 @@ function callDurationLabel(item) {
 
 function queueProgressPercent(item) {
   if (item.status === "verified") return 100;
+  if (item.status === "verified_once") return 83;
   if (item.status === "edited") return 66;
   if (item.status === "unfit") return 33;
   if (item.hasStt) return 33;
@@ -248,7 +290,7 @@ function queueProgressPercent(item) {
 
 function sortCallItems(items) {
   const sorted = [...items];
-  const rank = { pending: 0, edited: 1, verified: 2, unfit: -1 };
+  const rank = { pending: 0, edited: 1, verified_once: 2, verified: 3, unfit: -1 };
   if (state.sort === "status") {
     sorted.sort(
       (a, b) =>
@@ -774,10 +816,29 @@ function defaultTimingForInsertedTurn(afterIndex) {
 }
 
 function statusLabel(status) {
-  if (status === "verified") return "Final verified";
+  if (status === "verified") return "Fully verified";
+  if (status === "verified_once") return "Verified once";
   if (status === "edited") return "Final saved";
   if (status === "unfit") return "Unfit";
   return "Final not saved";
+}
+
+function queueStatusBadge(status) {
+  if (status === "verified") return { className: "verified", label: "Verified" };
+  if (status === "verified_once") return { className: "verified-once", label: "Verified once" };
+  if (status === "edited") return { className: "edited", label: "Saved" };
+  if (status === "unfit") return { className: "unfit", label: "Unfit" };
+  return { className: "pending", label: "Draft" };
+}
+
+function updateSelectionChrome() {
+  const count = state.selectedCallIds.size;
+  if (els.selectionCount) {
+    els.selectionCount.textContent = `${count} selected`;
+  }
+  if (els.exportSelectedCount) {
+    els.exportSelectedCount.textContent = String(count);
+  }
 }
 
 function updateDatasetChrome() {
@@ -794,10 +855,11 @@ async function loadStats(options = {}) {
   state.lastStats = data;
   const total = data.total || 0;
   const verified = data.verified || 0;
+  const verifiedOnce = data.verifiedOnce || 0;
   const edited = data.edited || 0;
   const pending = data.pending || 0;
   const unfit = data.unfit || 0;
-  const reviewed = edited + verified;
+  const reviewed = edited + verifiedOnce + verified;
   const completion = total ? Math.round((verified / total) * 1000) / 10 : 0;
   const attention = pending;
 
@@ -810,8 +872,12 @@ async function loadStats(options = {}) {
       <span class="metric-label">Reviewed</span>
       <span class="metric-value">${reviewed}</span>
     </div>
+    <div class="metric-card accent-verified-once">
+      <span class="metric-label">Verified once</span>
+      <span class="metric-value">${verifiedOnce}</span>
+    </div>
     <div class="metric-card accent-verified">
-      <span class="metric-label">Verified</span>
+      <span class="metric-label">Fully verified</span>
       <span class="metric-value">${verified}</span>
     </div>
     <div class="metric-card accent-pending">
@@ -836,7 +902,11 @@ async function loadStats(options = {}) {
       </div>
       <div class="queue-stat reviewed">
         <span class="queue-stat-value">${edited}</span>
-        <span class="queue-stat-label">Reviewed</span>
+        <span class="queue-stat-label">Saved</span>
+      </div>
+      <div class="queue-stat verified-once">
+        <span class="queue-stat-value">${verifiedOnce}</span>
+        <span class="queue-stat-label">Once</span>
       </div>
       <div class="queue-stat verified">
         <span class="queue-stat-value">${verified}</span>
@@ -858,10 +928,18 @@ async function loadStats(options = {}) {
   if (countEl) countEl.textContent = data.total;
 
   renderSttProgress(data.sttProgress, data.sttGenerated, data.total);
+  renderLabelProgress(data.labelProgress, data.labeled, data.total);
   updateSttButton(Boolean(data.sttProgress?.running));
+  updateLabelButton(Boolean(data.labelProgress?.running));
 
-  if (options.refreshCalls && data.sttProgress?.running) {
+  if (
+    options.refreshCalls &&
+    (data.sttProgress?.running || data.labelProgress?.running)
+  ) {
     await loadCalls();
+    if (data.labelProgress?.running) {
+      await loadLabelSuggestions();
+    }
     if (state.selectedId) {
       try {
         const call = await fetchJSON(apiUrl(`/api/calls/${state.selectedId}`));
@@ -873,6 +951,10 @@ async function loadStats(options = {}) {
           refreshSavedSnapshot();
         }
         updateMeta();
+        if (!state.labelDraft.dirty) {
+          loadLabelDraftFromCall(call);
+          renderLabelPanel();
+        }
       } catch {
         /* ignore */
       }
@@ -881,6 +963,276 @@ async function loadStats(options = {}) {
 }
 
 let sttRunning = false;
+let labelRunning = false;
+
+function updateLabelButton(running) {
+  labelRunning = running;
+  if (!els.startLabelBtn) return;
+  els.startLabelBtn.disabled = false;
+  if (running) {
+    els.startLabelBtn.className = "btn danger";
+    els.startLabelBtn.textContent = "Stop labeling";
+  } else {
+    els.startLabelBtn.className = "btn secondary";
+    els.startLabelBtn.textContent = "Auto-label calls";
+  }
+}
+
+function renderLabelProgress(progress, labeled, total) {
+  if (!els.labelProgressPanel || !els.labelProgressFill || !els.labelProgressMeta) return;
+  const saved = progress?.savedTotal ?? labeled ?? 0;
+  const targetTotal = progress?.total || total || 0;
+  const percent =
+    progress?.percent ??
+    (targetTotal ? Math.round((saved / targetTotal) * 1000) / 10 : 0);
+  const running = Boolean(progress?.running);
+
+  els.labelProgressFill.style.width = `${Math.min(100, percent)}%`;
+  els.labelProgressPanel.classList.toggle("running", running);
+  els.labelProgressPanel.classList.toggle(
+    "complete",
+    !running && saved >= targetTotal && targetTotal > 0
+  );
+  els.labelProgressMeta.textContent =
+    targetTotal > 0
+      ? `${saved}/${targetTotal} labeled (${percent}%)${running ? " · running" : ""}`
+      : "Run auto-label on original transcripts";
+}
+
+function formatLabel(value) {
+  return (value || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+async function loadLabelSuggestions() {
+  try {
+    state.labelSuggestions = await fetchJSON(apiUrl("/api/label/suggestions"));
+    populateDomainFilter();
+    renderLabelSuggestionLists();
+  } catch {
+    state.labelSuggestions = { domains: [], subdomains: [], byDomain: {} };
+  }
+}
+
+function renderLabelSuggestionLists() {
+  const { domains, subdomains, byDomain } = state.labelSuggestions;
+  if (els.labelDomainSuggestions) {
+    els.labelDomainSuggestions.innerHTML = (domains || [])
+      .map((domain) => `<option value="${escapeHtml(domain)}"></option>`)
+      .join("");
+  }
+  const domain = (els.labelDomainInput?.value || state.labelDraft.domain || "").trim();
+  const subs = domain && byDomain?.[domain] ? byDomain[domain] : subdomains || [];
+  if (els.labelSubdomainSuggestions) {
+    els.labelSubdomainSuggestions.innerHTML = subs
+      .map((sub) => `<option value="${escapeHtml(sub)}"></option>`)
+      .join("");
+  }
+}
+
+function populateDomainFilter() {
+  if (!els.domainFilter) return;
+  const current = state.domain;
+  const domains = state.labelSuggestions?.domains || [];
+  const options = ['<option value="">All domains</option>']
+    .concat(
+      domains.map(
+        (domain) =>
+          `<option value="${domain}" ${domain === current ? "selected" : ""}>${formatLabel(domain)}</option>`
+      )
+    )
+    .join("");
+  els.domainFilter.innerHTML = options;
+  populateSubdomainFilter();
+}
+
+function populateSubdomainFilter() {
+  if (!els.subdomainFilter) return;
+  const domain = state.domain;
+  const current = state.subdomain;
+  const byDomain = state.labelSuggestions?.byDomain || {};
+  const subs = domain ? byDomain[domain] || [] : state.labelSuggestions?.subdomains || [];
+  let options = '<option value="">All subdomains</option>';
+  options += subs
+    .map(
+      (sub) =>
+        `<option value="${sub}" ${sub === current ? "selected" : ""}>${formatLabel(sub)}</option>`
+    )
+    .join("");
+  els.subdomainFilter.innerHTML = options;
+  els.subdomainFilter.disabled = false;
+}
+
+function loadLabelDraftFromCall(call) {
+  const label = call?.label;
+  state.labelDraft = {
+    domain: label?.domain || "",
+    subdomain: label?.subdomain || "",
+    dirty: false,
+  };
+  if (els.labelDomainInput) els.labelDomainInput.value = state.labelDraft.domain;
+  if (els.labelSubdomainInput) els.labelSubdomainInput.value = state.labelDraft.subdomain;
+  renderLabelSuggestionLists();
+}
+
+function renderLabelPanel() {
+  if (!els.labelPanel) return;
+  const label = state.currentCall?.label;
+  const auto = label?.auto;
+  const status = label?.status || "unlabeled";
+
+  if (els.labelStatusChip) {
+    els.labelStatusChip.textContent =
+      status === "unlabeled"
+        ? "Unlabeled"
+        : status === "auto"
+          ? "AI-labeled"
+          : "Human-edited";
+    els.labelStatusChip.className = `label-status-chip ${status === "unlabeled" ? "" : status}`;
+  }
+
+  if (els.labelDomainInput && !state.labelDraft.dirty) {
+    els.labelDomainInput.value = state.labelDraft.domain || label?.domain || "";
+  }
+  if (els.labelSubdomainInput && !state.labelDraft.dirty) {
+    els.labelSubdomainInput.value = state.labelDraft.subdomain || label?.subdomain || "";
+  }
+  renderLabelSuggestionLists();
+
+  if (els.labelAutoHint) {
+    if (auto?.domain) {
+      const conf = auto.subdomainConfidence ?? auto.domainConfidence;
+      const pct = conf != null ? ` (${Math.round(conf * 100)}%)` : "";
+      els.labelAutoHint.textContent = `AI suggestion: ${formatLabel(auto.domain)} · ${formatLabel(auto.subdomain)}${pct}${auto.rationale ? ` — ${auto.rationale}` : ""}`;
+    } else {
+      els.labelAutoHint.textContent =
+        "Labels come from Gemini on the original transcript. Set GEMINI_API_KEY in .env, then run Auto-label.";
+    }
+  }
+
+  if (els.saveLabelBtn) {
+    els.saveLabelBtn.textContent = state.labelDraft.dirty ? "Save label *" : "Save label";
+  }
+}
+
+function collectLabelPayload() {
+  return {
+    domain: (els.labelDomainInput?.value || "").trim(),
+    subdomain: (els.labelSubdomainInput?.value || "").trim(),
+    isCustom: true,
+  };
+}
+
+async function saveLabel() {
+  if (!state.currentCall) return;
+  const payload = collectLabelPayload();
+  if (!payload.domain || !payload.subdomain) {
+    showToast("Domain and subdomain are required", "error");
+    return;
+  }
+  try {
+    const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/label`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    state.currentCall.label = result.label;
+    loadLabelDraftFromCall(state.currentCall);
+    renderLabelPanel();
+    await loadLabelSuggestions();
+    loadCalls().catch(() => {});
+    showToast("Label saved", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function resetLabelToAuto() {
+  const auto = state.currentCall?.label?.auto;
+  if (!auto?.domain) {
+    showToast("No AI suggestion to restore", "error");
+    return;
+  }
+  state.labelDraft = {
+    domain: auto.domain,
+    subdomain: auto.subdomain || "unknown",
+    dirty: true,
+  };
+  if (els.labelDomainInput) els.labelDomainInput.value = state.labelDraft.domain;
+  if (els.labelSubdomainInput) els.labelSubdomainInput.value = state.labelDraft.subdomain;
+  renderLabelPanel();
+}
+
+async function clearLabel() {
+  if (!state.currentCall) return;
+  try {
+    await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/label`), {
+      method: "DELETE",
+    });
+    state.currentCall.label = null;
+    loadLabelDraftFromCall(state.currentCall);
+    renderLabelPanel();
+    await loadLabelSuggestions();
+    loadCalls().catch(() => {});
+    showToast("Label cleared", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function rerunAutoLabel() {
+  if (!state.currentCall) return;
+  try {
+    const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/label/auto`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    state.currentCall.label = result.label;
+    loadLabelDraftFromCall(state.currentCall);
+    renderLabelPanel();
+    await loadLabelSuggestions();
+    loadCalls().catch(() => {});
+    showToast("AI label updated", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function startAutoLabeling() {
+  try {
+    updateLabelButton(true);
+    const result = await fetchJSON(apiUrl("/api/label/start"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume: true, workers: 3 }),
+    });
+    showToast(
+      `Auto-labeling started · ${result.pending} pending · ${result.skipped} skipped`
+    );
+    await loadStats();
+  } catch (err) {
+    updateLabelButton(false);
+    showToast(err.message);
+  }
+}
+
+async function stopAutoLabeling() {
+  try {
+    const result = await fetchJSON(apiUrl("/api/label/stop"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    showToast(result.wasStale ? "Cleared stale label status" : "Auto-labeling stopped");
+    await loadStats();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
 
 function updateSttButton(running) {
   sttRunning = running;
@@ -950,16 +1302,22 @@ async function loadCalls() {
       per_page: state.perPage,
       search: state.search,
       status: state.status,
+      domain: state.domain,
+      subdomain: state.subdomain,
+      label_status: state.labelStatus,
     })
   );
 
   if (!data.items.length) {
     els.callList.innerHTML = `<li class="empty-list">No calls yet. Upload a JSON file.</li>`;
     renderPagination(data);
+    updateSelectAllPageState([]);
+    updateSelectionChrome();
     return;
   }
 
   const items = sortCallItems(data.items);
+  state.lastCallPageIds = items.map((item) => item.id);
 
   els.callList.innerHTML = items
     .map((item) => {
@@ -970,10 +1328,19 @@ async function loadCalls() {
       const durationBadge = duration
         ? `<span class="badge duration">${duration}</span>`
         : "";
+      const labelBadge = item.domain
+        ? `<span class="badge label-chip ${item.isCustom ? "custom" : ""}">${escapeHtml(formatLabel(item.domain))} · ${escapeHtml(formatLabel(item.subdomain))}</span>`
+        : `<span class="badge stt-pending">Unlabeled</span>`;
       const progress = queueProgressPercent(item);
+      const statusBadge = queueStatusBadge(item.status);
+      const checked = state.selectedCallIds.has(item.id) ? "checked" : "";
       return `
       <li>
-        <button type="button" class="call-item ${item.id === state.selectedId ? "active" : ""}" data-id="${item.id}">
+        <div class="call-item ${item.id === state.selectedId ? "active" : ""}" data-id="${item.id}">
+          <label class="call-select" title="Select for export">
+            <input type="checkbox" class="call-select-input" data-id="${item.id}" ${checked} />
+          </label>
+          <button type="button" class="call-item-main">
           <div class="call-item-top">
             <span class="call-item-number">#${item.number}</span>
             <span class="call-item-id">${item.id}</span>
@@ -984,37 +1351,48 @@ async function loadCalls() {
           </div>
           <div class="call-item-meta">
             ${durationBadge}
-            <span class="badge ${
-              item.status === "verified"
-                ? "verified"
-                : item.status === "edited"
-                  ? "edited"
-                  : item.status === "unfit"
-                    ? "unfit"
-                    : "pending"
-            }">${
-              item.status === "verified"
-                ? "Verified"
-                : item.status === "edited"
-                  ? "Saved"
-                  : item.status === "unfit"
-                    ? "Unfit"
-                    : "Draft"
-            }</span>
+            ${labelBadge}
+            <span class="badge ${statusBadge.className}">${statusBadge.label}</span>
           </div>
           <div class="call-preview">${escapeHtml(item.preview)}</div>
           <div class="call-item-progress" aria-hidden="true"><span style="width:${progress}%"></span></div>
-        </button>
+          </button>
+        </div>
       </li>
     `;
     })
     .join("");
 
-  els.callList.querySelectorAll(".call-item").forEach((btn) => {
-    btn.onclick = () => selectCall(btn.dataset.id);
+  els.callList.querySelectorAll(".call-item-main").forEach((btn) => {
+    btn.onclick = () => selectCall(btn.closest(".call-item").dataset.id);
+  });
+  els.callList.querySelectorAll(".call-select-input").forEach((input) => {
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("change", () => {
+      const callId = input.dataset.id;
+      if (input.checked) state.selectedCallIds.add(callId);
+      else state.selectedCallIds.delete(callId);
+      updateSelectionChrome();
+      updateSelectAllPageState(state.lastCallPageIds);
+    });
   });
 
+  updateSelectAllPageState(state.lastCallPageIds);
+  updateSelectionChrome();
   renderPagination(data);
+}
+
+function updateSelectAllPageState(pageIds) {
+  if (!els.selectAllPage) return;
+  const ids = pageIds || [];
+  if (!ids.length) {
+    els.selectAllPage.checked = false;
+    els.selectAllPage.indeterminate = false;
+    return;
+  }
+  const selectedOnPage = ids.filter((id) => state.selectedCallIds.has(id)).length;
+  els.selectAllPage.checked = selectedOnPage === ids.length;
+  els.selectAllPage.indeterminate = selectedOnPage > 0 && selectedOnPage < ids.length;
 }
 
 function buildDraft(call) {
@@ -2052,6 +2430,7 @@ function saveStatusInfo() {
   const persisted = Boolean(
     call.edited ||
       call.status === "edited" ||
+      call.status === "verified_once" ||
       call.status === "verified" ||
       call.status === "unfit"
   );
@@ -2060,7 +2439,10 @@ function saveStatusInfo() {
     return { label: "Marked unfit", className: "unfit", dirty: false, persisted: true };
   }
   if (call.status === "verified" && !dirty) {
-    return { label: "Final verified", className: "verified", dirty: false, persisted: true };
+    return { label: "Fully verified", className: "verified", dirty: false, persisted: true };
+  }
+  if (call.status === "verified_once" && !dirty) {
+    return { label: "Verified once · awaiting 2nd", className: "verified-once", dirty: false, persisted: true };
   }
   if (dirty) {
     return {
@@ -2132,6 +2514,9 @@ function updateMeta() {
   if (call.editedBy) {
     chips.push(`<span class="chip muted">edited by ${escapeHtml(call.editedBy)}</span>`);
   }
+  if (call.verifiedOnceBy) {
+    chips.push(`<span class="chip muted">verified once by ${escapeHtml(call.verifiedOnceBy)}</span>`);
+  }
   if (call.verifiedBy) {
     chips.push(`<span class="chip muted">verified by ${escapeHtml(call.verifiedBy)}</span>`);
   }
@@ -2150,23 +2535,37 @@ function updateMeta() {
   }
 
   els.callMeta.innerHTML = chips.join("");
-  const isVerified = call.status === "verified";
+  const status = call.status;
+  const isFullyVerified = status === "verified";
+  const isVerifiedOnce = status === "verified_once";
   const isSaver =
     Boolean(call.editedBy) &&
     call.editedBy.trim().toLowerCase() === getReviewer().trim().toLowerCase();
-  const canVerify = call.status === "edited" && !info.dirty && !isSaver;
-  const canUnverify = isVerified && !info.dirty && !isSaver;
-  els.verifyBtn.disabled = !(canVerify || canUnverify);
+  const isFirstVerifier =
+    Boolean(call.verifiedOnceBy) &&
+    call.verifiedOnceBy.trim().toLowerCase() === getReviewer().trim().toLowerCase();
+  const canVerifyOnce = status === "edited" && !info.dirty && !isSaver;
+  const canVerifyFinal = isVerifiedOnce && !info.dirty && !isSaver && !isFirstVerifier;
+  const canUnverify = (isFullyVerified || isVerifiedOnce) && !info.dirty && !isSaver;
+  els.verifyBtn.disabled = !(canVerifyOnce || canVerifyFinal || canUnverify);
   els.verifyBtn.title = isSaver
     ? "Another reviewer must verify or unverify this save"
-    : isVerified
-      ? "Clear verification"
-      : "Verify final transcript";
-  els.verifyBtn.innerHTML = isVerified
-    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg> Unverify`
-    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> Verify`;
-  els.verifyBtn.classList.toggle("secondary", isVerified);
-  els.verifyBtn.classList.toggle("verify", !isVerified);
+    : isFullyVerified
+      ? "Remove second verification"
+      : isVerifiedOnce
+        ? isFirstVerifier
+          ? "A different reviewer must complete the second verification"
+          : "Complete second verification"
+        : "Add first verification";
+  if (isFullyVerified) {
+    els.verifyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg> Unverify`;
+  } else if (isVerifiedOnce) {
+    els.verifyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> Verify final`;
+  } else {
+    els.verifyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> Verify once`;
+  }
+  els.verifyBtn.classList.toggle("secondary", isFullyVerified || isVerifiedOnce);
+  els.verifyBtn.classList.toggle("verify", !isFullyVerified && !isVerifiedOnce);
   if (els.unfitBtn) {
     const isUnfit = call.status === "unfit";
     els.unfitBtn.textContent = isUnfit ? "Clear unfit" : "Mark unfit";
@@ -2185,8 +2584,8 @@ function updateNavButtons() {
 async function selectCall(callId) {
   state.selectedId = callId;
   // Refresh list selection styling without a full skeleton reload.
-  els.callList.querySelectorAll(".call-item").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.id === callId);
+  els.callList.querySelectorAll(".call-item").forEach((row) => {
+    row.classList.toggle("active", row.dataset.id === callId);
   });
 
   const call = await fetchJSON(apiUrl(`/api/calls/${callId}`));
@@ -2201,6 +2600,8 @@ async function selectCall(callId) {
   els.resetBtn.textContent = "Reset to original";
 
   initWaveform(call.public_url || "");
+  loadLabelDraftFromCall(call);
+  renderLabelPanel();
   renderTranscript({ preserveEdits: false });
   refreshSavedSnapshot();
   updateMeta();
@@ -2231,6 +2632,8 @@ async function saveFinal() {
     state.currentCall.status = "edited";
     state.currentCall.updatedAt = result.updatedAt;
     state.currentCall.editedBy = result.editedBy;
+    state.currentCall.verifiedOnceBy = "";
+    state.currentCall.verifiedOnceAt = null;
     state.currentCall.verifiedBy = "";
     state.currentCall.verifiedAt = null;
     state.currentCall.unfitBy = "";
@@ -2258,25 +2661,30 @@ async function verifyFinal() {
     window.location.href = "/login";
     return;
   }
-  const clearing = state.currentCall.status === "verified";
+  const clearing = state.currentCall.status === "verified" || state.currentCall.status === "verified_once";
   try {
     const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/verify`), {
       method: clearing ? "DELETE" : "POST",
       headers: { "Content-Type": "application/json" },
       body: clearing ? undefined : JSON.stringify({}),
     });
-    state.currentCall.status = result.status || (clearing ? "edited" : "verified");
+    state.currentCall.status = result.status || state.currentCall.status;
+    state.currentCall.verifiedOnceBy = result.verifiedOnceBy || "";
+    state.currentCall.verifiedOnceAt = result.verifiedOnceAt || null;
     state.currentCall.verifiedBy = result.verifiedBy || "";
     state.currentCall.verifiedAt = result.verifiedAt || null;
     updateMeta();
     await loadStats();
     await loadCalls();
-    showToast(
-      clearing
-        ? "Verification cleared"
-        : `Verified by ${result.verifiedBy}`,
-      "success"
-    );
+    const toastLabel =
+      result.status === "verified"
+        ? `Fully verified by ${result.verifiedBy}`
+        : result.status === "verified_once"
+          ? `Verified once by ${result.verifiedOnceBy}`
+          : clearing
+            ? "Verification stepped back"
+            : "Verified";
+    showToast(toastLabel, "success");
   } catch (err) {
     showToast(err.message, "error");
   }
@@ -2309,9 +2717,11 @@ async function toggleUnfit() {
     state.currentCall.unfitAt = result.unfitAt || null;
     state.currentCall.unfitReason = result.unfitReason || "";
     if (clearing) {
-      state.currentCall.edited = result.status === "edited" || result.status === "verified";
+      state.currentCall.edited = result.status === "edited" || result.status === "verified_once" || result.status === "verified";
     } else {
       state.currentCall.edited = true;
+      state.currentCall.verifiedOnceBy = "";
+      state.currentCall.verifiedOnceAt = null;
       state.currentCall.verifiedBy = "";
       state.currentCall.verifiedAt = null;
     }
@@ -2337,7 +2747,10 @@ async function resetFinal() {
     state.currentCall.status = "pending";
     state.currentCall.updatedAt = null;
     state.currentCall.editedBy = "";
+    state.currentCall.verifiedOnceBy = "";
+    state.currentCall.verifiedOnceAt = null;
     state.currentCall.verifiedBy = "";
+    state.currentCall.verifiedAt = null;
     buildDraft(state.currentCall);
     renderTranscript({ preserveEdits: false });
     refreshSavedSnapshot();
@@ -2356,17 +2769,25 @@ async function switchDataset(dataset) {
   state.page = 1;
   state.search = "";
   state.status = "all";
+  state.domain = "";
+  state.subdomain = "";
+  state.labelStatus = "all";
   state.sort = "number";
   state.selectedId = null;
+  state.selectedCallIds = new Set();
   state.currentCall = null;
   state.draft = [];
   els.search.value = "";
   els.statusFilter.value = "all";
+  if (els.domainFilter) els.domainFilter.value = "";
+  if (els.subdomainFilter) els.subdomainFilter.value = "";
+  if (els.labelStatusFilter) els.labelStatusFilter.value = "all";
   if (els.sortSelect) els.sortSelect.value = "number";
   els.emptyState.classList.remove("hidden");
   els.callDetail.classList.add("hidden");
   destroyWaveform();
   updateDatasetChrome();
+  await loadLabelSuggestions();
   await loadStats();
   await loadCalls();
 }
@@ -2430,9 +2851,107 @@ async function stopSarvamStt() {
   }
 }
 
-async function exportVerified() {
+async function buildExportPayload() {
+  const scope =
+    document.querySelector('input[name="exportScope"]:checked')?.value || "selected";
+  const status = els.exportStatusFilter?.value || "all";
+  const payload = {
+    status,
+    search: "",
+    domain: "",
+    subdomain: "",
+    label_status: "all",
+    call_ids: null,
+  };
+  if (scope === "selected") {
+    payload.call_ids = [...state.selectedCallIds];
+  } else if (scope === "filtered") {
+    payload.search = state.search;
+    payload.domain = state.domain;
+    payload.subdomain = state.subdomain;
+    payload.label_status = state.labelStatus;
+  }
+  return payload;
+}
+
+async function refreshExportCounts() {
+  if (!els.exportModal) return;
+  const status = els.exportStatusFilter?.value || "all";
+  updateSelectionChrome();
+
+  const filteredPayload = {
+    status,
+    search: state.search,
+    domain: state.domain,
+    subdomain: state.subdomain,
+    label_status: state.labelStatus,
+  };
+  const allPayload = {
+    status,
+    search: "",
+    domain: "",
+    subdomain: "",
+    label_status: "all",
+  };
   try {
-    const res = await fetch(apiUrl("/api/export/verified"));
+    const [filtered, all] = await Promise.all([
+      fetchJSON(apiUrl("/api/export/preview"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filteredPayload),
+      }),
+      fetchJSON(apiUrl("/api/export/preview"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(allPayload),
+      }),
+    ]);
+    if (els.exportFilteredCount) {
+      els.exportFilteredCount.textContent = String(filtered.count || 0);
+    }
+    if (els.exportAllCount) {
+      els.exportAllCount.textContent = String(all.count || 0);
+    }
+  } catch {
+    if (els.exportFilteredCount) els.exportFilteredCount.textContent = "0";
+    if (els.exportAllCount) els.exportAllCount.textContent = "0";
+  }
+}
+
+function openExportModal() {
+  if (!els.exportModal) return;
+  if (els.exportStatusFilter) {
+    els.exportStatusFilter.value = state.status === "all" ? "all" : state.status;
+  }
+  const selectedRadio = document.querySelector('input[name="exportScope"][value="selected"]');
+  const filteredRadio = document.querySelector('input[name="exportScope"][value="filtered"]');
+  if (state.selectedCallIds.size > 0 && selectedRadio) {
+    selectedRadio.checked = true;
+  } else if (filteredRadio) {
+    filteredRadio.checked = true;
+  }
+  els.exportModal.classList.remove("hidden");
+  refreshExportCounts();
+}
+
+function closeExportModal() {
+  els.exportModal?.classList.add("hidden");
+}
+
+async function exportTranscripts() {
+  try {
+    const payload = await buildExportPayload();
+    const scope =
+      document.querySelector('input[name="exportScope"]:checked')?.value || "selected";
+    if (scope === "selected" && (!payload.call_ids || !payload.call_ids.length)) {
+      throw new Error("Select at least one call to export");
+    }
+    const res = await fetch(apiUrl("/api/export"), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || "Export failed");
@@ -2441,14 +2960,16 @@ async function exportVerified() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${state.dataset}_verified_transcripts.json`;
+    const statusSlug = (payload.status || "export").replace(/[^a-z0-9_]+/gi, "_");
+    a.download = `${state.dataset}_${statusSlug}_transcripts.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    showToast("Downloaded verified transcripts");
+    closeExportModal();
+    showToast("Downloaded transcripts", "success");
   } catch (err) {
-    showToast(err.message);
+    showToast(err.message, "error");
   }
 }
 
@@ -2611,7 +3132,77 @@ if (els.startSttBtn) {
     else startSarvamStt();
   });
 }
-els.exportVerifiedBtn.addEventListener("click", exportVerified);
+if (els.startLabelBtn) {
+  els.startLabelBtn.addEventListener("click", () => {
+    if (labelRunning) stopAutoLabeling();
+    else startAutoLabeling();
+  });
+}
+
+if (els.labelDomainInput) {
+  els.labelDomainInput.addEventListener("input", () => {
+    state.labelDraft.dirty = true;
+    state.labelDraft.domain = els.labelDomainInput.value;
+    renderLabelSuggestionLists();
+  });
+}
+if (els.labelSubdomainInput) {
+  els.labelSubdomainInput.addEventListener("input", () => {
+    state.labelDraft.dirty = true;
+    state.labelDraft.subdomain = els.labelSubdomainInput.value;
+  });
+}
+els.saveLabelBtn?.addEventListener("click", saveLabel);
+els.resetLabelBtn?.addEventListener("click", resetLabelToAuto);
+els.clearLabelBtn?.addEventListener("click", clearLabel);
+els.rerunLabelBtn?.addEventListener("click", rerunAutoLabel);
+
+if (els.domainFilter) {
+  els.domainFilter.addEventListener("change", () => {
+    state.domain = els.domainFilter.value;
+    state.subdomain = "";
+    state.page = 1;
+    populateSubdomainFilter();
+    loadCalls();
+  });
+}
+if (els.subdomainFilter) {
+  els.subdomainFilter.addEventListener("change", () => {
+    state.subdomain = els.subdomainFilter.value;
+    state.page = 1;
+    loadCalls();
+  });
+}
+if (els.labelStatusFilter) {
+  els.labelStatusFilter.addEventListener("change", () => {
+    state.labelStatus = els.labelStatusFilter.value;
+    state.page = 1;
+    loadCalls();
+  });
+}
+
+els.exportDataBtn?.addEventListener("click", openExportModal);
+els.closeExportModal?.addEventListener("click", closeExportModal);
+els.cancelExportBtn?.addEventListener("click", closeExportModal);
+els.confirmExportBtn?.addEventListener("click", exportTranscripts);
+els.exportStatusFilter?.addEventListener("change", refreshExportCounts);
+document.querySelectorAll('input[name="exportScope"]').forEach((input) => {
+  input.addEventListener("change", refreshExportCounts);
+});
+els.exportModal?.addEventListener("click", (event) => {
+  if (event.target === els.exportModal) closeExportModal();
+});
+if (els.selectAllPage) {
+  els.selectAllPage.addEventListener("change", () => {
+    const ids = state.lastCallPageIds || [];
+    if (els.selectAllPage.checked) {
+      ids.forEach((id) => state.selectedCallIds.add(id));
+    } else {
+      ids.forEach((id) => state.selectedCallIds.delete(id));
+    }
+    loadCalls();
+  });
+}
 
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "s") {
@@ -2653,6 +3244,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 updateDatasetChrome();
+loadLabelSuggestions();
 loadStats();
 loadCalls();
 

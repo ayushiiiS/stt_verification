@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
 </head>
-<body data-can-manage-sarvam="{{ 'true' if can_manage_sarvam else 'false' }}">
+<body data-can-manage-sarvam="{{ 'true' if can_manage_sarvam else 'false' }}" data-can-manage-label="{{ 'true' if can_manage_label else 'false' }}">
   <div class="app-shell">
     <header class="topnav" role="banner">
       <div class="topnav-brand">
@@ -44,6 +44,16 @@
           </div>
           <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
             <div class="progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+
+        <div class="progress-panel label-progress-panel" id="labelProgressPanel" title="Auto-label progress">
+          <div class="progress-header">
+            <span class="progress-title">Label Progress</span>
+            <span class="progress-meta" id="labelProgressMeta">—</span>
+          </div>
+          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-fill label-progress-fill" id="labelProgressFill"></div>
           </div>
         </div>
 
@@ -97,9 +107,15 @@
           Start Sarvam STT
         </button>
         {% endif %}
-        <button type="button" class="btn secondary" id="exportVerifiedBtn">
+        {% if can_manage_label %}
+        <button type="button" class="btn secondary" id="startLabelBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 10h10M4 14h14M4 18h8"/><circle cx="18" cy="18" r="3"/></svg>
+          Auto-label calls
+        </button>
+        {% endif %}
+        <button type="button" class="btn secondary" id="exportDataBtn">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v12M8 12l4 4 4-4"/><path d="M4 20h16"/></svg>
-          Export verified
+          Export data
         </button>
         <span class="upload-hint" id="uploadHint">JSON with transcripts + public URLs</span>
       </div>
@@ -124,7 +140,8 @@
               <option value="no_stt">No STT</option>
               <option value="pending">Final not saved</option>
               <option value="edited">Final saved</option>
-              <option value="verified">Verified</option>
+              <option value="verified_once">Verified once</option>
+              <option value="verified">Fully verified</option>
               <option value="unfit">Unfit</option>
             </select>
             <select id="sortSelect" aria-label="Sort conversations">
@@ -132,6 +149,31 @@
               <option value="status">Sort: Status</option>
               <option value="id">Sort: ID</option>
             </select>
+          </div>
+          <div class="filter-row">
+            <select id="domainFilter" aria-label="Filter by domain">
+              <option value="">All domains</option>
+            </select>
+            <select id="subdomainFilter" aria-label="Filter by subdomain">
+              <option value="">All subdomains</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <select id="labelStatusFilter" aria-label="Filter by label status">
+              <option value="all">All labels</option>
+              <option value="labeled">Labeled</option>
+              <option value="unlabeled">Unlabeled</option>
+              <option value="auto">Auto-labeled</option>
+              <option value="human">Human-edited</option>
+              <option value="custom">Custom labels</option>
+            </select>
+          </div>
+          <div class="selection-row">
+            <label class="select-all-label">
+              <input type="checkbox" id="selectAllPage" />
+              <span>Select page</span>
+            </label>
+            <span class="selection-count" id="selectionCount">0 selected</span>
           </div>
         </div>
 
@@ -184,6 +226,34 @@
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
                   Verify
                 </button>
+              </div>
+            </div>
+
+            <div class="label-panel" id="labelPanel">
+              <div class="label-panel-header">
+                <h3>Classification</h3>
+                <span class="label-status-chip" id="labelStatusChip">Unlabeled</span>
+              </div>
+              <div class="label-grid">
+                <label class="label-field">
+                  <span>Domain</span>
+                  <input type="text" id="labelDomainInput" list="labelDomainSuggestions" placeholder="e.g. finance, healthcare" autocomplete="off" />
+                  <datalist id="labelDomainSuggestions"></datalist>
+                </label>
+                <label class="label-field">
+                  <span>Subdomain</span>
+                  <input type="text" id="labelSubdomainInput" list="labelSubdomainSuggestions" placeholder="e.g. gold_loan, cardio" autocomplete="off" />
+                  <datalist id="labelSubdomainSuggestions"></datalist>
+                </label>
+              </div>
+              <p class="label-auto-hint" id="labelAutoHint"></p>
+              <div class="label-actions">
+                <button type="button" class="btn primary btn-sm" id="saveLabelBtn">Save label</button>
+                <button type="button" class="btn secondary btn-sm" id="resetLabelBtn">Reset to auto</button>
+                <button type="button" class="btn ghost btn-sm" id="clearLabelBtn">Clear</button>
+                {% if can_manage_label %}
+                <button type="button" class="btn ghost btn-sm" id="rerunLabelBtn">Re-run AI</button>
+                {% endif %}
               </div>
             </div>
 
@@ -240,6 +310,50 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <div class="modal-overlay hidden" id="exportModal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="exportModalTitle">Export transcripts</h2>
+        <button type="button" class="btn ghost btn-sm" id="closeExportModal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <fieldset class="export-fieldset">
+          <legend>Scope</legend>
+          <label class="radio-row">
+            <input type="radio" name="exportScope" value="selected" checked />
+            <span>Selected calls (<strong id="exportSelectedCount">0</strong>)</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="exportScope" value="filtered" />
+            <span>All matching filters (<strong id="exportFilteredCount">0</strong>)</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="exportScope" value="all" />
+            <span>Entire dataset (<strong id="exportAllCount">0</strong>)</span>
+          </label>
+        </fieldset>
+        <label class="export-field">
+          <span>Status filter</span>
+          <select id="exportStatusFilter">
+            <option value="all">All statuses</option>
+            <option value="pending">Final not saved</option>
+            <option value="edited">Final saved</option>
+            <option value="verified_once">Verified once</option>
+            <option value="verified">Fully verified</option>
+            <option value="unfit">Unfit</option>
+            <option value="stt">Has STT</option>
+            <option value="no_stt">No STT</option>
+          </select>
+        </label>
+        <p class="export-hint" id="exportHint">Exports final transcript messages for each matching call.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn secondary" id="cancelExportBtn">Cancel</button>
+        <button type="button" class="btn primary" id="confirmExportBtn">Download JSON</button>
+      </div>
+    </div>
   </div>
 
   <div class="suggest-popup hidden" id="suggestPopup"></div>

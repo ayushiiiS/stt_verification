@@ -22,6 +22,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from auth import (
     authenticate,
     can_manage_sarvam_stt,
+    can_manage_label_llm,
     current_user,
     register_user,
     require_login_before_request,
@@ -36,6 +37,17 @@ from stt_runner import (
     start_stt_job,
     stop_stt_job,
 )
+from label_client import label_api_key
+from label_runner import (
+    clear_stale_progress as clear_stale_label_progress,
+    is_running as label_is_running,
+    label_single_call,
+    labels_path as dataset_labels_path,
+    read_progress as read_label_progress,
+    start_label_job,
+    stop_label_job,
+)
+from taxonomy import normalize_label, validate_label
 
 
 from transcript_utils import (
@@ -104,6 +116,7 @@ corrections: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 _transliterate_cache: dict[str, list[str]] = {}
 _transliterate_http: Any | None = None
 sarvam_by_dataset: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
+labels_by_dataset: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 phrase_cache: dict[str, list[dict]] = {}
 _data_loaded = False
 
@@ -250,6 +263,102 @@ def load_corrections_file(dataset: str, path: Path | None) -> None:
         corrections[dataset] = {}
 
 
+def load_corrections_file(dataset: str, path: Path | None) -> None:
+    if not path or not path.exists():
+        corrections[dataset] = {}
+        return
+    try:
+        with path.open(encoding="utf-8") as handle:
+            corrections[dataset] = json.load(handle)
+    except json.JSONDecodeError:
+        corrections[dataset] = {}
+
+
+def labels_path_for(dataset: str) -> Path:
+    return UPLOADS_DIR / dataset / "call_labels.json"
+
+
+def load_labels_file(dataset: str, path: Path | None = None) -> None:
+    label_path = path or labels_path_for(dataset)
+    if not label_path.exists():
+        labels_by_dataset[dataset] = {}
+        return
+    try:
+        with label_path.open(encoding="utf-8") as handle:
+            labels_by_dataset[dataset] = json.load(handle)
+    except json.JSONDecodeError:
+        labels_by_dataset[dataset] = {}
+
+
+def save_label_entry(dataset: str, call_id: str) -> None:
+    ensure_dataset_dirs(dataset)
+    entry = labels_by_dataset[dataset].get(call_id)
+    dump_numbered(
+        labels_path_for(dataset),
+        labels_by_dataset[dataset],
+        call_order[dataset],
+    )
+    if entry:
+        try:
+            gcs_storage.push_labels(dataset, call_id, entry)
+            threading.Thread(
+                target=gcs_storage.push_dataset_file,
+                args=(UPLOADS_DIR, dataset, "call_labels.json"),
+                daemon=True,
+                name=f"gcs-labels-{dataset}",
+            ).start()
+        except Exception as exc:  # noqa: BLE001
+            print(f"GCS labels sync failed ({dataset}/{call_id}): {exc}", flush=True)
+
+
+def label_status(entry: dict | None) -> str:
+    if not entry or not entry.get("domain"):
+        return "unlabeled"
+    if entry.get("labeledBy") == "human":
+        return "custom" if entry.get("isCustom") else "human"
+    return "auto"
+
+
+def label_public_view(entry: dict | None) -> dict | None:
+    if not entry or not entry.get("domain"):
+        return None
+    return {
+        "domain": entry.get("domain") or "",
+        "subdomain": entry.get("subdomain") or "",
+        "isCustom": bool(entry.get("isCustom")),
+        "labeledBy": entry.get("labeledBy") or "auto",
+        "labeledByUser": entry.get("labeledByUser") or "",
+        "updatedAt": entry.get("updatedAt"),
+        "source": entry.get("source") or "original",
+        "status": label_status(entry),
+        "auto": entry.get("auto"),
+    }
+
+
+def label_suggestions_for_dataset(dataset: str) -> dict:
+    """Distinct domains/subdomains already used in this dataset (for filter UI)."""
+    store = labels_by_dataset.get(dataset) or {}
+    domains: set[str] = set()
+    subdomains: set[str] = set()
+    by_domain: dict[str, set[str]] = {}
+    for entry in store.values():
+        if not isinstance(entry, dict):
+            continue
+        domain = normalize_label(str(entry.get("domain") or ""))
+        subdomain = normalize_label(str(entry.get("subdomain") or ""))
+        if not domain:
+            continue
+        domains.add(domain)
+        if subdomain:
+            subdomains.add(subdomain)
+            by_domain.setdefault(domain, set()).add(subdomain)
+    return {
+        "domains": sorted(domains),
+        "subdomains": sorted(subdomains),
+        "byDomain": {key: sorted(values) for key, values in sorted(by_domain.items())},
+    }
+
+
 def ingest_call_entry(
     dataset: str,
     call_id: str,
@@ -344,6 +453,7 @@ def apply_uploaded_calls(dataset: str, payload, *, replace: bool = False) -> int
         call_order[dataset] = []
         corrections[dataset] = {}
         sarvam_by_dataset[dataset] = {}
+        labels_by_dataset[dataset] = {}
         phrase_cache.pop(dataset, None)
     count = 0
     for item in items:
@@ -442,6 +552,8 @@ def ensure_dataset_loaded(dataset: str) -> None:
             if "sarvam_transcripts.json" in pulled:
                 _sarvam_mtime.pop(key, None)
             reload_sarvam_transcripts(key)
+        if "call_labels.json" in pulled or not labels_by_dataset.get(key):
+            load_labels_file(key)
         return
     try:
         gcs_storage.sync_dataset_dir(UPLOADS_DIR, key, prefer_remote=True)
@@ -449,11 +561,14 @@ def ensure_dataset_loaded(dataset: str) -> None:
         call_order[key] = []
         corrections[key] = {}
         sarvam_by_dataset[key] = {}
+        labels_by_dataset[key] = {}
         phrase_cache.pop(key, None)
         if key == "indiamart":
             load_indiamart()
+            load_labels_file(key)
         else:
             load_corrections_file(key, corrections_path_for(key))
+            load_labels_file(key)
             load_uploaded_dataset(key)
             path = dataset_sarvam_path(UPLOADS_DIR, key)
             if path.exists():
@@ -484,6 +599,7 @@ def load_data() -> None:
         call_order[name] = []
         corrections[name] = {}
         sarvam_by_dataset[name] = {}
+        labels_by_dataset[name] = {}
     phrase_cache.clear()
     _hydrated_datasets.clear()
     gcs_storage.hydrate_users_file(UPLOADS_DIR / "users.json", prefer_remote=True)
@@ -491,6 +607,7 @@ def load_data() -> None:
     ensure_dataset_loaded("indiamart")
     for name in DATASETS:
         clear_stale_progress(UPLOADS_DIR, name)
+        clear_stale_label_progress(UPLOADS_DIR, name)
     print(f"Storage: {gcs_storage.status()}", flush=True)
 
 
@@ -613,6 +730,14 @@ def read_dataset_progress(dataset: str) -> dict:
                     return json.load(handle)
             except json.JSONDecodeError:
                 return {}
+    return progress
+
+
+def read_dataset_label_progress(dataset: str) -> dict:
+    progress = clear_stale_label_progress(UPLOADS_DIR, dataset)
+    if progress.get("total") or progress.get("running") or progress.get("savedTotal"):
+        progress["running"] = label_is_running(dataset) or bool(progress.get("running"))
+        return progress
     return progress
 
 
@@ -752,11 +877,177 @@ def review_status(saved: dict | None) -> str:
         return "pending"
     if saved.get("unfit"):
         return "unfit"
-    if saved.get("verifiedBy") and saved.get("verifiedAt"):
+    once_by = (saved.get("verifiedOnceBy") or "").strip()
+    once_at = saved.get("verifiedOnceAt")
+    final_by = (saved.get("verifiedBy") or "").strip()
+    final_at = saved.get("verifiedAt")
+    if final_by and final_at and once_by and once_at:
         return "verified"
+    if once_by and once_at:
+        return "verified_once"
+    # Legacy single-verify records count as first verification only.
+    if final_by and final_at:
+        return "verified_once"
     if saved.get("messages") or saved.get("editedBy"):
         return "edited"
     return "pending"
+
+
+def normalize_legacy_verification(saved: dict) -> None:
+    """Map old single-verifier saves onto the two-step verification fields."""
+    once_by = (saved.get("verifiedOnceBy") or "").strip()
+    final_by = (saved.get("verifiedBy") or "").strip()
+    if final_by and saved.get("verifiedAt") and not once_by:
+        saved["verifiedOnceBy"] = final_by
+        saved["verifiedOnceAt"] = saved.get("verifiedAt")
+        saved["verifiedBy"] = ""
+        saved["verifiedAt"] = None
+
+
+def _same_reviewer(left: str, right: str) -> bool:
+    return bool(left.strip()) and left.strip().lower() == right.strip().lower()
+
+
+def filter_call_ids(
+    dataset: str,
+    *,
+    search: str = "",
+    status: str = "all",
+    domain_filter: str = "",
+    subdomain_filter: str = "",
+    label_status_filter: str = "all",
+) -> list[str]:
+    order = call_order[dataset]
+    dataset_corrections = corrections[dataset]
+    sarvam_store = sarvam_by_dataset.get(dataset, {})
+    label_store = labels_by_dataset.get(dataset, {})
+    filtered = list(order)
+
+    search = (search or "").strip().lower()
+    if search:
+        if search.isdigit():
+            num = int(search)
+            filtered = [
+                cid
+                for i, cid in enumerate(filtered, start=1)
+                if i == num or search in cid.lower()
+            ]
+        else:
+            filtered = [cid for cid in filtered if search in cid.lower()]
+
+    if status == "edited":
+        filtered = [
+            cid
+            for cid in filtered
+            if review_status(dataset_corrections.get(cid)) == "edited"
+        ]
+    elif status == "pending":
+        filtered = [
+            cid
+            for cid in filtered
+            if review_status(dataset_corrections.get(cid)) == "pending"
+        ]
+    elif status == "verified_once":
+        filtered = [
+            cid
+            for cid in filtered
+            if review_status(dataset_corrections.get(cid)) == "verified_once"
+        ]
+    elif status == "verified":
+        filtered = [
+            cid
+            for cid in filtered
+            if review_status(dataset_corrections.get(cid)) == "verified"
+        ]
+    elif status == "unfit":
+        filtered = [
+            cid
+            for cid in filtered
+            if review_status(dataset_corrections.get(cid)) == "unfit"
+        ]
+    elif status == "stt":
+        filtered = [cid for cid in filtered if cid in sarvam_store]
+    elif status == "no_stt":
+        filtered = [cid for cid in filtered if cid not in sarvam_store]
+
+    domain_filter = (domain_filter or "").strip().lower()
+    if domain_filter:
+        filtered = [
+            cid
+            for cid in filtered
+            if (label_store.get(cid) or {}).get("domain", "").lower() == domain_filter
+        ]
+    subdomain_filter = (subdomain_filter or "").strip().lower()
+    if subdomain_filter:
+        filtered = [
+            cid
+            for cid in filtered
+            if (label_store.get(cid) or {}).get("subdomain", "").lower() == subdomain_filter
+        ]
+    label_status_filter = (label_status_filter or "all").strip().lower()
+    if label_status_filter == "labeled":
+        filtered = [cid for cid in filtered if label_store.get(cid, {}).get("domain")]
+    elif label_status_filter == "unlabeled":
+        filtered = [cid for cid in filtered if not label_store.get(cid, {}).get("domain")]
+    elif label_status_filter in {"auto", "human", "custom"}:
+        filtered = [
+            cid
+            for cid in filtered
+            if label_status(label_store.get(cid)) == label_status_filter
+        ]
+    return filtered
+
+
+def resolve_export_call_ids(
+    dataset: str,
+    *,
+    call_ids: list[str] | None = None,
+    search: str = "",
+    status: str = "all",
+    domain_filter: str = "",
+    subdomain_filter: str = "",
+    label_status_filter: str = "all",
+) -> list[str]:
+    order_set = set(call_order[dataset])
+    if call_ids:
+        seen: set[str] = set()
+        resolved: list[str] = []
+        for call_id in call_ids:
+            cid = str(call_id or "").strip()
+            if not cid or cid not in order_set or cid in seen:
+                continue
+            seen.add(cid)
+            resolved.append(cid)
+        if status == "all":
+            return resolved
+        return [
+            cid
+            for cid in resolved
+            if cid in filter_call_ids(dataset, status=status)
+        ]
+    return filter_call_ids(
+        dataset,
+        search=search,
+        status=status,
+        domain_filter=domain_filter,
+        subdomain_filter=subdomain_filter,
+        label_status_filter=label_status_filter,
+    )
+
+
+def build_export_entry(dataset: str, call_id: str, saved: dict) -> dict:
+    return {
+        "callLogId": call_id,
+        "messages": saved.get("messages") or [],
+        "updatedAt": saved.get("updatedAt"),
+        "editedBy": saved.get("editedBy") or "",
+        "verifiedOnceBy": saved.get("verifiedOnceBy") or "",
+        "verifiedOnceAt": saved.get("verifiedOnceAt"),
+        "verifiedBy": saved.get("verifiedBy") or "",
+        "verifiedAt": saved.get("verifiedAt"),
+        "status": review_status(saved),
+        "public_url": calls_by_id[dataset].get(call_id, {}).get("public_url", ""),
+    }
 
 
 def build_call_payload(dataset: str, call_id: str) -> dict:
@@ -849,6 +1140,8 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         "edited": call_id in corrections[dataset],
         "status": review_status(saved),
         "editedBy": (saved or {}).get("editedBy") or "",
+        "verifiedOnceBy": (saved or {}).get("verifiedOnceBy") or "",
+        "verifiedOnceAt": (saved or {}).get("verifiedOnceAt"),
         "verifiedBy": (saved or {}).get("verifiedBy") or "",
         "verifiedAt": (saved or {}).get("verifiedAt"),
         "unfitBy": (saved or {}).get("unfitBy") or "",
@@ -862,6 +1155,7 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         else None,
         "prevId": prev_id,
         "nextId": next_id,
+        "label": label_public_view(labels_by_dataset.get(dataset, {}).get(call_id)),
     }
 
 
@@ -945,8 +1239,8 @@ def collect_phrase_sources(dataset: str) -> list[tuple[str, int, str]]:
 
     for entry in corrections[dataset].values():
         status = review_status(entry)
-        weight = 12 if status == "verified" else 9
-        label = "verified" if status == "verified" else "saved"
+        weight = 12 if status == "verified" else 10 if status == "verified_once" else 9
+        label = "verified" if status == "verified" else "verified_once" if status == "verified_once" else "saved"
         for msg in entry.get("messages") or []:
             sources.append((msg.get("content") or "", weight, label))
 
@@ -1077,6 +1371,7 @@ def me():
         {
             "user": user,
             "canManageSarvamStt": can_manage_sarvam_stt(user),
+            "canManageLabelLlm": can_manage_label_llm(user),
         }
     )
 
@@ -1100,6 +1395,7 @@ def index():
         totals=totals,
         current_user=current_user(),
         can_manage_sarvam=can_manage_sarvam_stt(),
+        can_manage_label=can_manage_label_llm(),
     )
 
 
@@ -1127,13 +1423,21 @@ def stats():
     order = call_order[dataset]
     dataset_corrections = corrections[dataset]
     edited = sum(1 for cid in order if review_status(dataset_corrections.get(cid)) == "edited")
+    verified_once = sum(
+        1 for cid in order if review_status(dataset_corrections.get(cid)) == "verified_once"
+    )
     verified = sum(
         1 for cid in order if review_status(dataset_corrections.get(cid)) == "verified"
     )
     unfit = sum(1 for cid in order if review_status(dataset_corrections.get(cid)) == "unfit")
-    pending = len(order) - edited - verified - unfit
+    pending = len(order) - edited - verified_once - verified - unfit
     sarvam_store = sarvam_by_dataset.get(dataset, {})
     stt_generated = sum(1 for call_id in order if call_id in sarvam_store)
+    label_store = labels_by_dataset.get(dataset, {})
+    labeled = sum(1 for call_id in order if label_store.get(call_id, {}).get("domain"))
+    label_human = sum(
+        1 for call_id in order if label_status(label_store.get(call_id)) in {"human", "custom"}
+    )
 
     progress = read_dataset_progress(dataset)
     if not progress.get("total"):
@@ -1144,16 +1448,29 @@ def stats():
             "percent": round((stt_generated / len(order)) * 100, 1) if order else 0,
         }
 
+    label_progress = read_dataset_label_progress(dataset)
+    if not label_progress.get("total"):
+        label_progress = {
+            **label_progress,
+            "total": len(order),
+            "savedTotal": labeled,
+            "percent": round((labeled / len(order)) * 100, 1) if order else 0,
+        }
+
     return jsonify(
         {
             "dataset": dataset,
             "total": len(order),
             "edited": edited,
+            "verifiedOnce": verified_once,
             "verified": verified,
             "unfit": unfit,
             "pending": pending,
             "sttGenerated": stt_generated,
             "sttProgress": progress,
+            "labeled": labeled,
+            "labelHuman": label_human,
+            "labelProgress": label_progress,
             "hasStt": True,
         }
     )
@@ -1168,51 +1485,21 @@ def list_calls():
     per_page = min(100, max(10, request.args.get("per_page", 50, type=int)))
     search = (request.args.get("search") or "").strip().lower()
     status = request.args.get("status", "all")
+    domain_filter = (request.args.get("domain") or "").strip().lower()
+    subdomain_filter = (request.args.get("subdomain") or "").strip().lower()
+    label_status_filter = (request.args.get("label_status") or "all").strip().lower()
 
-    order = call_order[dataset]
     dataset_corrections = corrections[dataset]
     sarvam_store = sarvam_by_dataset.get(dataset, {})
-    filtered = order
-
-    if search:
-        if search.isdigit():
-            num = int(search)
-            filtered = [
-                cid
-                for i, cid in enumerate(filtered, start=1)
-                if i == num or search in cid.lower()
-            ]
-        else:
-            filtered = [cid for cid in filtered if search in cid.lower()]
-
-    if status == "edited":
-        filtered = [
-            cid
-            for cid in filtered
-            if review_status(dataset_corrections.get(cid)) == "edited"
-        ]
-    elif status == "pending":
-        filtered = [
-            cid
-            for cid in filtered
-            if review_status(dataset_corrections.get(cid)) == "pending"
-        ]
-    elif status == "verified":
-        filtered = [
-            cid
-            for cid in filtered
-            if review_status(dataset_corrections.get(cid)) == "verified"
-        ]
-    elif status == "unfit":
-        filtered = [
-            cid
-            for cid in filtered
-            if review_status(dataset_corrections.get(cid)) == "unfit"
-        ]
-    elif status == "stt":
-        filtered = [cid for cid in filtered if cid in sarvam_store]
-    elif status == "no_stt":
-        filtered = [cid for cid in filtered if cid not in sarvam_store]
+    label_store = labels_by_dataset.get(dataset, {})
+    filtered = filter_call_ids(
+        dataset,
+        search=search,
+        status=status,
+        domain_filter=domain_filter,
+        subdomain_filter=subdomain_filter,
+        label_status_filter=label_status_filter,
+    )
 
     total = len(filtered)
     start = (page - 1) * per_page
@@ -1225,6 +1512,7 @@ def list_calls():
         messages = call.get("messages", [])
         saved = dataset_corrections.get(call_id)
         preview_src = (saved or {}).get("messages") or messages
+        label_entry = label_store.get(call_id)
         items.append(
             {
                 "id": call_id,
@@ -1234,9 +1522,14 @@ def list_calls():
                 "edited": call_id in dataset_corrections,
                 "status": review_status(saved),
                 "editedBy": (saved or {}).get("editedBy") or "",
+                "verifiedOnceBy": (saved or {}).get("verifiedOnceBy") or "",
                 "verifiedBy": (saved or {}).get("verifiedBy") or "",
                 "hasAudio": bool(call.get("public_url")),
                 "hasStt": call_id in sarvam_store,
+                "domain": (label_entry or {}).get("domain") or "",
+                "subdomain": (label_entry or {}).get("subdomain") or "",
+                "labelStatus": label_status(label_entry),
+                "isCustom": bool((label_entry or {}).get("isCustom")),
             }
         )
 
@@ -1291,7 +1584,9 @@ def save_correct(call_id: str):
             "messages": cleaned,
             "updatedAt": datetime.now(timezone.utc).isoformat(),
             "editedBy": reviewer,
-            # Re-saving clears verification so a second person must re-verify
+            # Re-saving clears verification so two reviewers must re-verify
+            "verifiedOnceBy": "",
+            "verifiedOnceAt": None,
             "verifiedBy": "",
             "verifiedAt": None,
             # Saving a final also clears unfit
@@ -1336,17 +1631,29 @@ def verify_correct(call_id: str):
     if not user:
         return jsonify({"error": "Login required"}), 401
 
-    # Unverify — saver cannot clear their own verification gate
+    normalize_legacy_verification(saved)
+    status = review_status(saved)
+    editor = (saved.get("editedBy") or "").strip()
+    once_by = (saved.get("verifiedOnceBy") or "").strip()
+    final_by = (saved.get("verifiedBy") or "").strip()
+
+    if _same_reviewer(editor, user):
+        return jsonify(
+            {
+                "error": "The person who saved cannot verify or unverify — ask another reviewer",
+            }
+        ), 403
+
+    # Unverify — step back one verification level
     if request.method == "DELETE":
-        editor = (saved.get("editedBy") or "").strip().lower()
-        if editor and editor == user.strip().lower():
-            return jsonify(
-                {
-                    "error": "The person who saved cannot unverify — ask another reviewer",
-                }
-            ), 403
-        saved["verifiedBy"] = ""
-        saved["verifiedAt"] = None
+        if status == "verified":
+            saved["verifiedBy"] = ""
+            saved["verifiedAt"] = None
+        elif status == "verified_once":
+            saved["verifiedOnceBy"] = ""
+            saved["verifiedOnceAt"] = None
+        else:
+            return jsonify({"error": "Nothing to unverify"}), 400
         corrections[dataset][call_id] = saved
         try:
             save_corrections(dataset, call_id=call_id)
@@ -1355,23 +1662,29 @@ def verify_correct(call_id: str):
         return jsonify(
             {
                 "ok": True,
-                "verifiedBy": "",
-                "verifiedAt": None,
+                "verifiedOnceBy": saved.get("verifiedOnceBy") or "",
+                "verifiedOnceAt": saved.get("verifiedOnceAt"),
+                "verifiedBy": saved.get("verifiedBy") or "",
+                "verifiedAt": saved.get("verifiedAt"),
                 "status": review_status(saved),
             }
         )
 
-    # Verify — must be a different user than the saver
-    editor = (saved.get("editedBy") or "").strip().lower()
-    if editor and editor == user.strip().lower():
-        return jsonify(
-            {
-                "error": "The person who saved cannot verify — ask another reviewer",
-            }
-        ), 403
+    if status == "edited":
+        saved["verifiedOnceBy"] = user
+        saved["verifiedOnceAt"] = datetime.now(timezone.utc).isoformat()
+    elif status == "verified_once":
+        if _same_reviewer(once_by, user):
+            return jsonify(
+                {
+                    "error": "A different reviewer must complete the second verification",
+                }
+            ), 403
+        saved["verifiedBy"] = user
+        saved["verifiedAt"] = datetime.now(timezone.utc).isoformat()
+    else:
+        return jsonify({"error": "Already fully verified"}), 400
 
-    saved["verifiedBy"] = user
-    saved["verifiedAt"] = datetime.now(timezone.utc).isoformat()
     corrections[dataset][call_id] = saved
     try:
         save_corrections(dataset, call_id=call_id)
@@ -1381,9 +1694,11 @@ def verify_correct(call_id: str):
     return jsonify(
         {
             "ok": True,
-            "verifiedBy": user,
-            "verifiedAt": saved["verifiedAt"],
-            "status": "verified",
+            "verifiedOnceBy": saved.get("verifiedOnceBy") or "",
+            "verifiedOnceAt": saved.get("verifiedOnceAt"),
+            "verifiedBy": saved.get("verifiedBy") or "",
+            "verifiedAt": saved.get("verifiedAt"),
+            "status": review_status(saved),
         }
     )
 
@@ -1433,6 +1748,8 @@ def mark_unfit(call_id: str):
             "unfitBy": user,
             "unfitAt": datetime.now(timezone.utc).isoformat(),
             "unfitReason": reason,
+            "verifiedOnceBy": "",
+            "verifiedOnceAt": None,
             "verifiedBy": "",
             "verifiedAt": None,
         }
@@ -1504,6 +1821,15 @@ def upload_dataset_json():
     with progress_path.open("w", encoding="utf-8") as handle:
         json.dump({}, handle)
     gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "stt_progress.json")
+    labels_path = dataset_labels_path(UPLOADS_DIR, dataset)
+    with labels_path.open("w", encoding="utf-8") as handle:
+        json.dump({}, handle)
+    labels_by_dataset[dataset] = {}
+    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "call_labels.json")
+    label_progress_path = UPLOADS_DIR / dataset / "label_progress.json"
+    with label_progress_path.open("w", encoding="utf-8") as handle:
+        json.dump({}, handle)
+    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "label_progress.json")
 
     return jsonify(
         {
@@ -1515,32 +1841,85 @@ def upload_dataset_json():
     )
 
 
+@app.route("/api/export/preview", methods=["POST"])
+def export_preview():
+    dataset = resolve_dataset()
+    payload = request.get_json(silent=True) or {}
+    call_ids = payload.get("call_ids")
+    if call_ids is not None and not isinstance(call_ids, list):
+        return jsonify({"error": "call_ids must be an array"}), 400
+    ids = resolve_export_call_ids(
+        dataset,
+        call_ids=call_ids,
+        search=str(payload.get("search") or ""),
+        status=str(payload.get("status") or "all"),
+        domain_filter=str(payload.get("domain") or ""),
+        subdomain_filter=str(payload.get("subdomain") or ""),
+        label_status_filter=str(payload.get("label_status") or "all"),
+    )
+    count = 0
+    for call_id in ids:
+        saved = ensure_correction_loaded(dataset, call_id) or corrections[dataset].get(
+            call_id
+        )
+        if saved and saved.get("messages"):
+            count += 1
+    return jsonify({"count": count})
+
+
+@app.route("/api/export", methods=["POST"])
+def export_transcripts():
+    dataset = resolve_dataset()
+    payload = request.get_json(silent=True) or {}
+    call_ids = payload.get("call_ids")
+    if call_ids is not None and not isinstance(call_ids, list):
+        return jsonify({"error": "call_ids must be an array"}), 400
+    ids = resolve_export_call_ids(
+        dataset,
+        call_ids=call_ids,
+        search=str(payload.get("search") or ""),
+        status=str(payload.get("status") or "all"),
+        domain_filter=str(payload.get("domain") or ""),
+        subdomain_filter=str(payload.get("subdomain") or ""),
+        label_status_filter=str(payload.get("label_status") or "all"),
+    )
+    export_data: dict[str, dict] = {}
+    for call_id in ids:
+        saved = ensure_correction_loaded(dataset, call_id) or corrections[dataset].get(
+            call_id
+        )
+        if not saved or not saved.get("messages"):
+            continue
+        export_data[call_id] = build_export_entry(dataset, call_id, saved)
+
+    if not export_data:
+        return jsonify({"error": "No transcripts match this export"}), 404
+
+    body = dumps_numbered(export_data, list(export_data.keys()))
+    status_slug = str(payload.get("status") or "export").replace(" ", "_")
+    filename = f"{dataset}_{status_slug}_transcripts.json"
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.route("/api/export/verified")
 def export_verified():
     dataset = resolve_dataset()
-    order = call_order[dataset]
+    ids = resolve_export_call_ids(dataset, status="verified")
     export_data: dict[str, dict] = {}
-    verified_order: list[str] = []
-
-    for call_id in order:
+    for call_id in ids:
         saved = corrections[dataset].get(call_id)
         if review_status(saved) != "verified" or saved is None:
             continue
-        verified_order.append(call_id)
-        export_data[call_id] = {
-            "callLogId": call_id,
-            "messages": saved.get("messages") or [],
-            "updatedAt": saved.get("updatedAt"),
-            "editedBy": saved.get("editedBy") or "",
-            "verifiedBy": saved.get("verifiedBy") or "",
-            "verifiedAt": saved.get("verifiedAt"),
-            "public_url": calls_by_id[dataset].get(call_id, {}).get("public_url", ""),
-        }
+        export_data[call_id] = build_export_entry(dataset, call_id, saved)
 
     if not export_data:
         return jsonify({"error": "No verified transcripts to export"}), 404
 
-    body = dumps_numbered(export_data, verified_order)
+    body = dumps_numbered(export_data, ids)
     filename = f"{dataset}_verified_transcripts.json"
     return Response(
         body,
@@ -1618,6 +1997,184 @@ def stt_status():
             "progress": progress,
         }
     )
+
+
+@app.route("/api/label/suggestions")
+def label_suggestions():
+    dataset = resolve_dataset()
+    return jsonify(label_suggestions_for_dataset(dataset))
+
+
+@app.route("/api/taxonomy")
+def get_taxonomy():
+    """Legacy alias — returns labels seen in this dataset, not a fixed taxonomy."""
+    dataset = resolve_dataset()
+    return jsonify(label_suggestions_for_dataset(dataset))
+
+
+@app.route("/api/label/start", methods=["POST"])
+def start_call_labeling():
+    if not can_manage_label_llm():
+        return jsonify({"error": "Only ayushi can start auto-labeling"}), 403
+
+    dataset = resolve_dataset()
+    if not call_order[dataset]:
+        return jsonify({"error": "No calls in this dataset. Upload JSON first."}), 400
+
+    if not label_api_key():
+        return jsonify(
+            {
+                "error": "GEMINI_API_KEY (or LABEL_API_KEY) is required for auto-labeling. Add it to .env.",
+            }
+        ), 400
+
+    if label_is_running(dataset):
+        return jsonify(
+            {"error": "Auto-labeling is already running for this dataset", "running": True}
+        ), 409
+
+    payload = request.get_json(silent=True) or {}
+    workers = int(payload.get("workers") or 3)
+    resume = payload.get("resume", True)
+    force = bool(payload.get("force", False))
+
+    calls = []
+    for call_id in call_order[dataset]:
+        call = calls_by_id[dataset][call_id]
+        calls.append({"id": call_id, "messages": call.get("messages") or []})
+
+    def on_saved(call_id: str, entry: dict) -> None:
+        labels_by_dataset[dataset][call_id] = entry
+
+    result = start_label_job(
+        dataset=dataset,
+        uploads_dir=UPLOADS_DIR,
+        calls=calls,
+        call_order=call_order[dataset],
+        on_saved=on_saved,
+        workers=workers,
+        resume=bool(resume),
+        force=force,
+    )
+    if not result.get("ok"):
+        return jsonify(result), 409
+    return jsonify(result)
+
+
+@app.route("/api/label/stop", methods=["POST"])
+def stop_call_labeling():
+    if not can_manage_label_llm():
+        return jsonify({"error": "Only ayushi can stop auto-labeling"}), 403
+
+    dataset = resolve_dataset()
+    result = stop_label_job(dataset=dataset, uploads_dir=UPLOADS_DIR)
+    if not result.get("ok"):
+        return jsonify(result), 409
+    return jsonify(result)
+
+
+@app.route("/api/label/status")
+def label_status_api():
+    dataset = resolve_dataset()
+    progress = read_dataset_label_progress(dataset)
+    return jsonify(
+        {
+            "dataset": dataset,
+            "running": label_is_running(dataset) or bool(progress.get("running")),
+            "progress": progress,
+        }
+    )
+
+
+@app.route("/api/calls/<call_id>/label", methods=["GET", "PUT", "DELETE"])
+def call_label(call_id: str):
+    dataset = resolve_dataset()
+    if call_id not in calls_by_id[dataset]:
+        return jsonify({"error": "Call not found"}), 404
+
+    if request.method == "GET":
+        entry = labels_by_dataset[dataset].get(call_id)
+        return jsonify(
+            {
+                "callLogId": call_id,
+                "label": label_public_view(entry),
+                "suggestions": label_suggestions_for_dataset(dataset),
+            }
+        )
+
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+
+    if request.method == "DELETE":
+        if call_id in labels_by_dataset[dataset]:
+            del labels_by_dataset[dataset][call_id]
+            save_label_entry(dataset, call_id)
+        return jsonify({"ok": True, "label": None})
+
+    payload = request.get_json(silent=True) or {}
+    domain_raw = str(payload.get("domain") or "").strip()
+    subdomain_raw = str(payload.get("subdomain") or "").strip()
+    is_custom = bool(payload.get("isCustom", False))
+    try:
+        domain, subdomain, is_custom = validate_label(
+            domain_raw,
+            subdomain_raw,
+            is_custom=is_custom,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    existing = labels_by_dataset[dataset].get(call_id) or {}
+    entry = {
+        **existing,
+        "callLogId": call_id,
+        "number": recording_number(dataset, call_id),
+        "domain": domain,
+        "subdomain": subdomain,
+        "isCustom": is_custom,
+        "labeledBy": "human",
+        "labeledByUser": user,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "source": "original",
+    }
+    labels_by_dataset[dataset][call_id] = entry
+    save_label_entry(dataset, call_id)
+    return jsonify({"ok": True, "label": label_public_view(entry)})
+
+
+@app.route("/api/calls/<call_id>/label/auto", methods=["POST"])
+def auto_label_call(call_id: str):
+    if not can_manage_label_llm():
+        return jsonify({"error": "Only ayushi can re-run auto-labeling"}), 403
+
+    dataset = resolve_dataset()
+    if call_id not in calls_by_id[dataset]:
+        return jsonify({"error": "Call not found"}), 404
+
+    if not label_api_key():
+        return jsonify(
+            {
+                "error": "GEMINI_API_KEY (or LABEL_API_KEY) is required for auto-labeling. Add it to .env.",
+            }
+        ), 400
+
+    call = calls_by_id[dataset][call_id]
+    existing = labels_by_dataset[dataset].get(call_id)
+    try:
+        entry = label_single_call(
+            {"id": call_id, "messages": call.get("messages") or []},
+            existing=existing,
+        )
+        entry["number"] = recording_number(dataset, call_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 502
+
+    labels_by_dataset[dataset][call_id] = entry
+    save_label_entry(dataset, call_id)
+    return jsonify({"ok": True, "label": label_public_view(entry)})
 
 
 @app.route("/api/phrases")
