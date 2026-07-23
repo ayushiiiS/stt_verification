@@ -324,6 +324,33 @@ def ensure_label_loaded(dataset: str, call_id: str) -> dict | None:
     return entry if isinstance(entry, dict) else None
 
 
+def sync_label_to_saved_correction(
+    dataset: str, call_id: str, entry: dict | None
+) -> None:
+    """Mirror domain/subdomain onto the saved final so export always has labels."""
+    if not entry:
+        return
+    domain = str(entry.get("domain") or "").strip()
+    subdomain = str(entry.get("subdomain") or "").strip()
+    if not domain and not subdomain:
+        return
+    saved = ensure_correction_loaded(dataset, call_id) or corrections[dataset].get(
+        call_id
+    )
+    if not saved:
+        return
+    saved["domain"] = domain
+    saved["subdomain"] = subdomain
+    corrections[dataset][call_id] = saved
+    try:
+        save_corrections(dataset, call_id=call_id)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"Label sync to correction failed ({dataset}/{call_id}): {exc}",
+            flush=True,
+        )
+
+
 def save_label_entry(dataset: str, call_id: str) -> None:
     ensure_dataset_dirs(dataset)
     entry = labels_by_dataset[dataset].get(call_id)
@@ -333,6 +360,7 @@ def save_label_entry(dataset: str, call_id: str) -> None:
         call_order[dataset],
     )
     if entry:
+        sync_label_to_saved_correction(dataset, call_id, entry)
         try:
             gcs_storage.push_labels(dataset, call_id, entry)
             threading.Thread(
@@ -1069,10 +1097,26 @@ def resolve_export_call_ids(
     )
 
 
-def build_export_entry(dataset: str, call_id: str, saved: dict) -> dict:
+def export_label_fields(
+    dataset: str, call_id: str, saved: dict
+) -> tuple[str, str, dict | None]:
     label_entry = ensure_label_loaded(dataset, call_id) or {}
-    domain = str(label_entry.get("domain") or "").strip()
-    subdomain = str(label_entry.get("subdomain") or "").strip()
+    domain = str(
+        label_entry.get("domain") or saved.get("domain") or ""
+    ).strip()
+    subdomain = str(
+        label_entry.get("subdomain") or saved.get("subdomain") or ""
+    ).strip()
+    if domain or subdomain:
+        merged = {**label_entry, "domain": domain, "subdomain": subdomain}
+        label_view = label_public_view(merged)
+    else:
+        label_view = None
+    return domain, subdomain, label_view
+
+
+def build_export_entry(dataset: str, call_id: str, saved: dict) -> dict:
+    domain, subdomain, label_view = export_label_fields(dataset, call_id, saved)
     return {
         "callLogId": call_id,
         "domain": domain,
@@ -1086,7 +1130,7 @@ def build_export_entry(dataset: str, call_id: str, saved: dict) -> dict:
         "verifiedAt": saved.get("verifiedAt"),
         "status": review_status(saved),
         "public_url": calls_by_id[dataset].get(call_id, {}).get("public_url", ""),
-        "label": label_public_view(label_entry if domain or subdomain else None),
+        "label": label_view,
     }
 
 
@@ -1956,6 +2000,10 @@ def export_transcripts():
         )
         if not saved or not saved.get("messages"):
             continue
+        sync_label_to_saved_correction(
+            dataset, call_id, ensure_label_loaded(dataset, call_id)
+        )
+        saved = corrections[dataset].get(call_id) or saved
         export_data[call_id] = build_export_entry(dataset, call_id, saved)
 
     if not export_data:
@@ -1978,9 +2026,15 @@ def export_verified():
     ids = resolve_export_call_ids(dataset, status="verified")
     export_data: dict[str, dict] = {}
     for call_id in ids:
-        saved = corrections[dataset].get(call_id)
+        saved = ensure_correction_loaded(dataset, call_id) or corrections[
+            dataset
+        ].get(call_id)
         if review_status(saved) != "verified" or saved is None:
             continue
+        sync_label_to_saved_correction(
+            dataset, call_id, ensure_label_loaded(dataset, call_id)
+        )
+        saved = corrections[dataset].get(call_id) or saved
         export_data[call_id] = build_export_entry(dataset, call_id, saved)
 
     if not export_data:
