@@ -12,13 +12,16 @@ import httpx
 from taxonomy import normalize_label
 from transcript_utils import visible_messages
 
-LABEL_PROVIDER = (os.environ.get("LABEL_PROVIDER") or "gemini").strip().lower()
+LABEL_PROVIDER = (os.environ.get("LABEL_PROVIDER") or "gemma").strip().lower()
 LABEL_MODEL = (os.environ.get("LABEL_MODEL") or "").strip()
 GEMINI_API_KEY = (
     os.environ.get("GEMINI_API_KEY")
     or os.environ.get("GOOGLE_API_KEY")
     or ""
 ).strip()
+GEMMA_API_URL = (os.environ.get("GEMMA_API_URL") or "").strip()
+GEMMA_API_KEY = (os.environ.get("GEMMA_API_KEY") or "").strip()
+GEMMA_API_ID = (os.environ.get("GEMMA_API_ID") or "").strip()
 LABEL_API_KEY = (
     os.environ.get("LABEL_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
 ).strip()
@@ -39,12 +42,37 @@ LABEL_INCLUDE_RATIONALE = (os.environ.get("LABEL_INCLUDE_RATIONALE") or "").stri
 LABEL_REQUEST_TIMEOUT_SEC = float(os.environ.get("LABEL_REQUEST_TIMEOUT_SEC", "60"))
 
 _DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+_DEFAULT_GEMMA_MODEL = "gemma-3-12b-it"
 _DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+_PROVIDER_LABELS = {
+    "gemma": "Gemma",
+    "gemini": "Gemini",
+    "openai": "OpenAI",
+}
+
+
+def provider_label() -> str:
+    return _PROVIDER_LABELS.get(LABEL_PROVIDER, LABEL_PROVIDER.title())
+
+
+def label_api_key_env_hint() -> str:
+    if LABEL_PROVIDER == "openai":
+        return "LABEL_API_KEY or OPENAI_API_KEY"
+    if GEMMA_API_URL:
+        return "GEMMA_API_KEY and GEMMA_API_ID"
+    return "GEMINI_API_KEY (or GOOGLE_API_KEY / LABEL_API_KEY)"
+
+
+def uses_gemma_proxy() -> bool:
+    return LABEL_PROVIDER == "gemma" and bool(GEMMA_API_URL and GEMMA_API_ID)
 
 
 def label_api_key() -> str:
     if LABEL_PROVIDER == "openai":
         return LABEL_API_KEY
+    if GEMMA_API_KEY:
+        return GEMMA_API_KEY
     return GEMINI_API_KEY or LABEL_API_KEY
 
 
@@ -53,6 +81,10 @@ def effective_model() -> str:
         return LABEL_MODEL
     if LABEL_PROVIDER == "openai":
         return _DEFAULT_OPENAI_MODEL
+    if uses_gemma_proxy():
+        return "gemma4"
+    if LABEL_PROVIDER == "gemma":
+        return _DEFAULT_GEMMA_MODEL
     return _DEFAULT_GEMINI_MODEL
 
 
@@ -100,35 +132,84 @@ def _extract_json(text: str) -> dict[str, Any]:
         return json.loads(match.group(0))
 
 
-def _gemini_generate(system_prompt: str, user_prompt: str) -> str:
+def _gemma_proxy_generate(system_prompt: str, user_prompt: str) -> str:
+    api_key = label_api_key()
+    if not api_key or not GEMMA_API_ID:
+        raise RuntimeError(
+            f"{label_api_key_env_hint()} is required for {provider_label()} auto-labeling. "
+            "Add them to .env (see .env.example)."
+        )
+    payload = {
+        "inference_id": GEMMA_API_ID,
+        "temperature": 0,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=LABEL_REQUEST_TIMEOUT_SEC) as client:
+        response = client.post(GEMMA_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"{provider_label()} returned no choices")
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if not content:
+        raise RuntimeError(f"{provider_label()} returned empty content")
+    return str(content)
+
+
+def _build_google_payload(system_prompt: str, user_prompt: str) -> dict:
+    generation_config = {
+        "temperature": 0,
+        "responseMimeType": "application/json",
+    }
+    # Gemma models use the same API but do not accept systemInstruction.
+    if LABEL_PROVIDER == "gemma":
+        return {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}],
+                }
+            ],
+            "generationConfig": generation_config,
+        }
+    return {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": generation_config,
+    }
+
+
+def _google_generate(system_prompt: str, user_prompt: str) -> str:
     api_key = label_api_key()
     if not api_key:
         raise RuntimeError(
-            "GEMINI_API_KEY (or LABEL_API_KEY) is required for Gemini auto-labeling. "
+            f"{label_api_key_env_hint()} is required for {provider_label()} auto-labeling. "
             "Add it to .env (see .env.example)."
         )
     model = effective_model()
     url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-        },
-    }
+    payload = _build_google_payload(system_prompt, user_prompt)
     with httpx.Client(timeout=LABEL_REQUEST_TIMEOUT_SEC) as client:
         response = client.post(url, params={"key": api_key}, json=payload)
         response.raise_for_status()
         data = response.json()
     candidates = data.get("candidates") or []
     if not candidates:
-        raise RuntimeError("Gemini returned no candidates")
+        raise RuntimeError(f"{provider_label()} returned no candidates")
     parts = (candidates[0].get("content") or {}).get("parts") or []
     text_parts = [str(part.get("text") or "") for part in parts if part.get("text")]
     content = "\n".join(text_parts).strip()
     if not content:
-        raise RuntimeError("Gemini returned empty content")
+        raise RuntimeError(f"{provider_label()} returned empty content")
     return content
 
 
@@ -170,7 +251,9 @@ def _openai_generate(system_prompt: str, user_prompt: str) -> str:
 def _chat_completion(system_prompt: str, user_prompt: str) -> str:
     if LABEL_PROVIDER == "openai":
         return _openai_generate(system_prompt, user_prompt)
-    return _gemini_generate(system_prompt, user_prompt)
+    if uses_gemma_proxy():
+        return _gemma_proxy_generate(system_prompt, user_prompt)
+    return _google_generate(system_prompt, user_prompt)
 
 
 _SYSTEM_PROMPT = """Classify phone calls. Return JSON only:

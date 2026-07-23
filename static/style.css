@@ -557,6 +557,7 @@ button, input, select, textarea {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -939,13 +940,68 @@ button, input, select, textarea {
 
 .workspace {
   padding: 10px 16px;
-  overflow: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background:
     radial-gradient(900px 280px at 0% 0%, rgba(196, 92, 138, 0.08), transparent 55%),
     radial-gradient(700px 240px at 100% 0%, rgba(240, 168, 196, 0.12), transparent 50%),
     var(--bg);
+}
+
+.call-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.call-detail-top {
+  flex: 0 0 auto;
+  max-height: min(52vh, 520px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+  margin-bottom: 8px;
+  background: linear-gradient(180deg, rgba(253, 246, 248, 0.98) 70%, rgba(253, 246, 248, 0.9));
+  border-radius: 12px;
+}
+
+.call-detail-top::-webkit-scrollbar {
+  width: 6px;
+}
+
+.call-detail-top::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.call-detail-top::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.call-detail-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.call-detail-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.call-detail-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
 }
 
 .sticky-top {
@@ -958,11 +1014,38 @@ button, input, select, textarea {
   backdrop-filter: blur(8px);
 }
 
+.call-detail-chrome {
+  max-height: min(46vh, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+  margin-bottom: 8px;
+}
+
+.call-detail-chrome::-webkit-scrollbar {
+  width: 6px;
+}
+
+.call-detail-chrome::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.call-detail-chrome::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.call-detail-top .audio-panel {
+  margin-top: 8px;
+}
+
 .empty-state {
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
   display: grid;
   place-items: center;
-  min-height: 420px;
 }
 
 .empty-card {
@@ -1575,7 +1658,7 @@ button, input, select, textarea {
 }
 
 .timing-input {
-  width: 72px;
+  width: 56px;
   border: none;
   background: transparent;
   color: var(--text);
@@ -1595,7 +1678,7 @@ button, input, select, textarea {
 }
 
 .timing-input.timing-end {
-  width: 72px;
+  width: 56px;
 }
 
 .timing-sep {
@@ -2183,6 +2266,10 @@ button, input, select, textarea {
     min-height: 0;
   }
 
+  .call-detail-top {
+    max-height: min(50vh, 480px);
+  }
+
   .message-body {
     grid-template-columns: 1fr 1fr;
   }
@@ -2211,6 +2298,10 @@ button, input, select, textarea {
 
   .detail-header {
     flex-direction: column;
+  }
+
+  .call-detail-top {
+    max-height: min(55vh, 500px);
   }
 
   .actions {
@@ -2265,34 +2356,56 @@ button, input, select, textarea {
 }
 
 .label-panel {
-  margin: 0 0 12px;
-  padding: 14px 16px;
+  margin: 0 0 6px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--surface-elevated);
+}
+
+.label-panel-compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.label-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.label-panel-title h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .label-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .label-panel-header h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .label-status-chip {
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 9px;
+  padding: 1px 5px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .label-status-chip.auto {
@@ -2309,34 +2422,82 @@ button, input, select, textarea {
 .label-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
+  gap: 6px 8px;
 }
 
 .label-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: 2px;
+  font-size: 11px;
   color: var(--muted);
+}
+
+.label-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 140px;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.label-field-inline span {
+  flex: 0 0 auto;
+  min-width: 48px;
 }
 
 .label-field select,
 .label-field input {
-  font-size: 13px;
+  width: 100%;
+  padding: 2px 6px;
+  min-height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.label-field-inline input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.label-field select:focus,
+.label-field input:focus {
+  outline: none;
+  border-color: #5eead4;
+  box-shadow: var(--focus);
 }
 
 .label-auto-hint {
-  margin: 10px 0 0;
-  font-size: 12px;
+  margin: 2px 0 0;
+  font-size: 9px;
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label-auto-hint:empty {
+  display: none;
 }
 
 .label-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.label-panel .btn.btn-sm {
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .badge.label-chip {
@@ -2352,6 +2513,19 @@ button, input, select, textarea {
 }
 
 @media (max-width: 900px) {
+  .label-panel-compact {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .label-field-inline {
+    flex: 1 1 auto;
+  }
+
+  .label-actions {
+    justify-content: flex-start;
+  }
+
   .label-grid {
     grid-template-columns: 1fr;
   }

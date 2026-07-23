@@ -48,6 +48,8 @@ const state = {
   highlightTimer: null,
   lastActiveTurn: -1,
   savedSnapshot: "",
+  callCache: new Map(),
+  callCacheTtlMs: 120000,
   translitCache: new Map(),
   translitInflight: new Map(),
   translitTimer: null,
@@ -59,6 +61,7 @@ const state = {
   canManageSarvamStt: document.body.dataset.canManageSarvam === "true",
   canManageLabelLlm: document.body.dataset.canManageLabel === "true",
   audioSyncEnabled: readAudioSyncPreference(),
+  timingsAlignedCallId: null,
 };
 
 const els = {
@@ -348,14 +351,16 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;");
 }
 
-function formatTime(seconds) {
+function formatClockTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  if (Math.abs(s - Math.round(s)) < 0.05) {
-    return `${m}:${String(Math.round(s)).padStart(2, "0")}`;
-  }
-  return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+  const total = Math.max(0, Math.round(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function formatTime(seconds) {
+  return formatClockTime(seconds);
 }
 
 const TIMING_PRECISION = 3;
@@ -368,10 +373,7 @@ function roundTime(seconds) {
 
 function formatTimeInput(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "";
-  const rounded = roundTime(seconds);
-  const m = Math.floor(rounded / 60);
-  const s = rounded - m * 60;
-  return `${m}:${s.toFixed(TIMING_PRECISION).padStart(TIMING_PRECISION + 3, "0")}`;
+  return formatClockTime(seconds);
 }
 
 function parseTimeInput(value) {
@@ -384,10 +386,10 @@ function parseTimeInput(value) {
     if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || minutes < 0 || seconds < 0) {
       return null;
     }
-    return roundTime(minutes * 60 + seconds);
+    return Math.round(minutes * 60 + seconds);
   }
   const seconds = Number(raw);
-  return Number.isFinite(seconds) && seconds >= 0 ? roundTime(seconds) : null;
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : null;
 }
 
 function tokenizeWords(text) {
@@ -939,24 +941,20 @@ async function loadStats(options = {}) {
     await loadCalls();
     if (data.labelProgress?.running) {
       await loadLabelSuggestions();
-    }
-    if (state.selectedId) {
-      try {
-        const call = await fetchJSON(apiUrl(`/api/calls/${state.selectedId}`));
-        const wasDirty = isDraftDirty();
-        state.currentCall = call;
-        if (!wasDirty && !call.edited) {
-          buildDraft(call);
-          renderTranscript({ preserveEdits: false });
-          refreshSavedSnapshot();
-        }
-        updateMeta();
-        if (!state.labelDraft.dirty) {
-          loadLabelDraftFromCall(call);
+      if (state.selectedId && state.currentCall && !state.labelDraft.dirty) {
+        try {
+          const call = await fetchJSON(apiUrl(`/api/calls/${state.selectedId}`));
+          state.currentCall = { ...state.currentCall, ...call, label: call.label };
+          state.callCache.set(state.selectedId, {
+            key: callCacheKey(call),
+            fetchedAt: Date.now(),
+            data: state.currentCall,
+          });
+          loadLabelDraftFromCall(state.currentCall);
           renderLabelPanel();
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
       }
     }
   }
@@ -966,8 +964,12 @@ let sttRunning = false;
 let labelRunning = false;
 
 function updateLabelButton(running) {
+  const changed = labelRunning !== running;
   labelRunning = running;
-  if (!els.startLabelBtn) return;
+  if (!els.startLabelBtn) {
+    if (changed) scheduleStatsPoll();
+    return;
+  }
   els.startLabelBtn.disabled = false;
   if (running) {
     els.startLabelBtn.className = "btn danger";
@@ -976,6 +978,7 @@ function updateLabelButton(running) {
     els.startLabelBtn.className = "btn secondary";
     els.startLabelBtn.textContent = "Auto-label calls";
   }
+  if (changed) scheduleStatsPoll();
 }
 
 function renderLabelProgress(progress, labeled, total) {
@@ -1109,7 +1112,7 @@ function renderLabelPanel() {
       els.labelAutoHint.textContent = `AI suggestion: ${formatLabel(auto.domain)} · ${formatLabel(auto.subdomain)}${pct}${auto.rationale ? ` — ${auto.rationale}` : ""}`;
     } else {
       els.labelAutoHint.textContent =
-        "Labels come from Gemini on the original transcript. Set GEMINI_API_KEY in .env, then run Auto-label.";
+        "Labels come from Gemma on the original transcript. Set GEMMA_API_KEY and GEMMA_API_ID in .env, then run Auto-label.";
     }
   }
 
@@ -1235,8 +1238,12 @@ async function stopAutoLabeling() {
 }
 
 function updateSttButton(running) {
+  const changed = sttRunning !== running;
   sttRunning = running;
-  if (!els.startSttBtn) return;
+  if (!els.startSttBtn) {
+    if (changed) scheduleStatsPoll();
+    return;
+  }
   els.startSttBtn.disabled = false;
   if (running) {
     els.startSttBtn.className = "btn danger";
@@ -1247,6 +1254,7 @@ function updateSttButton(running) {
     els.startSttBtn.innerHTML =
       `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></svg> Start Sarvam STT`;
   }
+  if (changed) scheduleStatsPoll();
 }
 
 function renderSttProgress(progress, sttGenerated, total) {
@@ -1395,9 +1403,97 @@ function updateSelectAllPageState(pageIds) {
   els.selectAllPage.indeterminate = selectedOnPage > 0 && selectedOnPage < ids.length;
 }
 
+function usableSavedBounds(start, end) {
+  if (start == null || end == null) return false;
+  const s = Number(start);
+  const e = Number(end);
+  return Number.isFinite(s) && Number.isFinite(e) && e > s + 0.01;
+}
+
+function resolveTurnBounds(savedStart, savedEnd, fallbackStart, fallbackEnd, { edited = false, preferSaved = false } = {}) {
+  if (preferSaved && usableSavedBounds(savedStart, savedEnd)) {
+    return { start: roundTime(savedStart), end: roundTime(savedEnd) };
+  }
+  const hasStt = usableSavedBounds(fallbackStart, fallbackEnd);
+  const hasSaved = usableSavedBounds(savedStart, savedEnd);
+  if (hasStt && !hasSaved) {
+    return { start: roundTime(fallbackStart), end: roundTime(fallbackEnd) };
+  }
+  if (hasSaved && !hasStt) {
+    return { start: roundTime(savedStart), end: roundTime(savedEnd) };
+  }
+  if (!hasStt && !hasSaved) {
+    return { start: null, end: null };
+  }
+  const sSaved = Number(savedStart);
+  const eSaved = Number(savedEnd);
+  const sStt = Number(fallbackStart);
+  const eStt = Number(fallbackEnd);
+  const savedSpan = eSaved - sSaved;
+  const sttSpan = Math.max(eStt - sStt, 0.01);
+  const differs = Math.abs(sSaved - sStt) > 0.75 || Math.abs(eSaved - eStt) > 0.75;
+  if (edited && differs && savedSpan <= sttSpan * 1.5) {
+    return { start: roundTime(sSaved), end: roundTime(eSaved) };
+  }
+  return { start: roundTime(sStt), end: roundTime(eStt) };
+}
+
+function refineTurnTimings(draft) {
+  const minGap = 0.05;
+  for (let i = 0; i < draft.length; i += 1) {
+    const msg = draft[i];
+    if (msg.timingTouched) continue;
+    if (!Number.isFinite(msg.start) || !Number.isFinite(msg.end)) continue;
+    if (i + 1 < draft.length) {
+      const nextStart = draft[i + 1].start;
+      if (Number.isFinite(nextStart) && msg.end > nextStart - minGap) {
+        msg.end = roundTime(nextStart - minGap);
+      }
+    }
+    if (msg.end <= msg.start) {
+      msg.end = roundTime(msg.start + 0.1);
+    }
+  }
+}
+
+function turnSegmentsForIndex(index) {
+  if (state.turnSegments?.length) return state.turnSegments;
+  return state.currentCall?.timing_segments || [];
+}
+
+function segmentsForDraftTurn(msg, index) {
+  const turnGroups = turnSegmentsForIndex(index);
+  const group = turnGroups[index] || [];
+  if (group.length && usableSavedBounds(msg.start, msg.end)) {
+    const bounds = boundsFromSegments(group);
+    if (
+      bounds.start != null &&
+      bounds.end != null &&
+      bounds.start >= msg.start - 0.35 &&
+      bounds.end <= msg.end + 0.35
+    ) {
+      return group;
+    }
+  }
+  return segmentsForTurnWindow(
+    msg.start,
+    msg.end,
+    state.sttSegments || [],
+    assignSegmentsToTurns([{ role: msg.role }], state.sttSegments || [])[0] || [],
+    msg.role
+  );
+}
+
+function isTurnLayoutEdited() {
+  const originals = state.currentCall?.messages || [];
+  if (state.draft.length !== originals.length) return true;
+  return state.draft.some((msg) => msg.added);
+}
+
 function buildDraft(call) {
   let finals = [...(call.final_messages || [])];
   const originals = call.messages || [];
+  const turnLayoutEdited = Boolean(call.turnLayoutEdited);
   const stt = call.stt_messages || [];
   const timings = call.timings || [];
   const turnSegments = call.timing_segments || [];
@@ -1405,7 +1501,8 @@ function buildDraft(call) {
   const hasSttTiming = Boolean(call.hasStt && (stt.length || sttSegments.length || turnSegments.length));
 
   // A partial save (e.g. one short test turn) must not hide the rest of the call.
-  if (finals.length && finals.length < originals.length) {
+  // Skip padding when the reviewer intentionally deleted turns.
+  if (finals.length && finals.length < originals.length && !turnLayoutEdited) {
     finals = finals.concat(
       originals.slice(finals.length).map((msg) => ({
         ...msg,
@@ -1451,24 +1548,27 @@ function buildDraft(call) {
     const origTiming = orig?._id ? timingByOriginalId[orig._id] : null;
     const matchedBounds = boundsFromSegments(turnSegments[index] || []);
     const sttBounds = matchedBounds.start != null ? matchedBounds : sttMessageBounds(sttMsg);
-    const savedStart = timings[index]?.start;
-    const savedEnd = timings[index]?.end;
-    const hasSavedBounds =
-      savedStart != null &&
-      savedEnd != null &&
-      Number.isFinite(Number(savedStart)) &&
-      Number.isFinite(Number(savedEnd));
-    const savedMatchesStt =
-      !hasSttTiming ||
-      sttBounds.start == null ||
-      Math.abs(Number(savedStart) - sttBounds.start) < 1.5;
-    const useSaved = hasSavedBounds && savedMatchesStt;
-    // If this Final turn is empty/near-empty but Original has text, seed from Original
-    // so a corrupt short save doesn't blank the editor.
+    const savedStart = msg.start ?? timings[index]?.start;
+    const savedEnd = msg.end ?? timings[index]?.end;
+    const fallbackStart = hasSttTiming
+      ? sttBounds.start ?? origTiming?.start ?? null
+      : origTiming?.start ?? sttBounds.start ?? null;
+    const fallbackEnd = hasSttTiming
+      ? sttBounds.end ?? origTiming?.end ?? null
+      : origTiming?.end ?? sttBounds.end ?? null;
     const seeded =
       String(content).trim().length < 3 && orig?.content
         ? orig.content
         : content;
+    const hasSavedTiming = usableSavedBounds(savedStart, savedEnd);
+    const preferSaved = Boolean(msg.timingTouched) || (Boolean(call.edited) && hasSavedTiming);
+    const { start: turnStart, end: turnEnd } = resolveTurnBounds(
+      savedStart,
+      savedEnd,
+      fallbackStart,
+      fallbackEnd,
+      { edited: Boolean(call.edited), preferSaved }
+    );
     return {
       _id: msg._id || orig?._id || `draft-${index + 1}`,
       role,
@@ -1477,30 +1577,15 @@ function buildDraft(call) {
       content: seeded,
       originalContent: orig?.content ?? "",
       sttContent: sttMsg?.content ?? "",
-      start: useSaved
-        ? roundTime(Number(savedStart))
-        : hasSttTiming
-          ? sttBounds.start ?? origTiming?.start ?? null
-          : origTiming?.start ?? sttBounds.start ?? null,
-      end: useSaved
-        ? roundTime(Number(savedEnd))
-        : hasSttTiming
-          ? sttBounds.end ?? origTiming?.end ?? null
-          : origTiming?.end ?? sttBounds.end ?? null,
+      start: turnStart,
+      end: turnEnd,
+      timingTouched: preferSaved,
       added: !orig,
     };
   });
+  refineTurnTimings(state.draft);
   state.draft.forEach((msg, index) => {
-    const segmentsForTurn = turnSegments[index]?.length
-      ? turnSegments[index]
-      : segmentsForTurnWindow(
-          msg.start,
-          msg.end,
-          sttSegments,
-          assignSegmentsToTurns([{ role: msg.role }], sttSegments)[0] || [],
-          msg.role
-        );
-    attachWordTimings(msg, segmentsForTurn);
+    attachWordTimings(msg, segmentsForDraftTurn(msg, index));
   });
   rebuildPlaybackWordIndex();
 }
@@ -1516,8 +1601,14 @@ function syncDraftFromDom() {
     const endInput = card.querySelector(".timing-end");
     if (roleSelect) state.draft[index].role = roleSelect.value;
     if (textarea) state.draft[index].content = textarea.value;
-    if (startInput) state.draft[index].start = parseTimeInput(startInput.value);
-    if (endInput) state.draft[index].end = parseTimeInput(endInput.value);
+    if (startInput) {
+      const parsed = parseTimeInput(startInput.value);
+      if (parsed != null) state.draft[index].start = parsed;
+    }
+    if (endInput) {
+      const parsed = parseTimeInput(endInput.value);
+      if (parsed != null) state.draft[index].end = parsed;
+    }
   });
 }
 
@@ -1815,6 +1906,7 @@ function realignTimestampsFromStt() {
     const bounds = boundsFromSegments(turnSegments[index] || []);
     if (bounds.start != null) msg.start = bounds.start;
     if (bounds.end != null) msg.end = bounds.end;
+    msg.timingTouched = false;
     attachWordTimings(msg, turnSegments[index] || []);
   });
 
@@ -1832,19 +1924,7 @@ function realignTimestampsFromStt() {
 function refreshTurnWordTimings(index) {
   const msg = state.draft[index];
   if (!msg) return;
-  const turnSegments = state.turnSegments?.length
-    ? state.turnSegments
-    : state.currentCall?.timing_segments || [];
-  const segmentsForTurn = turnSegments[index]?.length
-    ? turnSegments[index]
-    : segmentsForTurnWindow(
-        msg.start,
-        msg.end,
-        state.sttSegments || [],
-        assignSegmentsToTurns([{ role: msg.role }], state.sttSegments || [])[0] || [],
-        msg.role
-      );
-  attachWordTimings(msg, segmentsForTurn);
+  attachWordTimings(msg, segmentsForDraftTurn(msg, index));
   refreshWordTracksForTurn(index);
   rebuildPlaybackWordIndex();
 }
@@ -1879,6 +1959,8 @@ function handleFinalInput(event) {
 
 function alignDraftTimingsToAudio(duration) {
   if (!Number.isFinite(duration) || duration < 1 || !state.draft.length) return false;
+  if (state.draft.some((msg) => msg.timingTouched)) return false;
+  if (state.timingsAlignedCallId === state.currentCall?.id) return false;
 
   const points = [];
   state.draft.forEach((msg) => {
@@ -1896,8 +1978,12 @@ function alignDraftTimingsToAudio(duration) {
   const scale = targetEnd / span;
   const shift = -minT * scale;
 
+  const fitsAudio =
+    minT >= -0.1 &&
+    maxT <= duration * 1.05 &&
+    maxT >= duration * 0.4;
   const alreadyAligned =
-    Math.abs(scale - 1) < 0.02 && minT < 0.25 && Math.abs(maxT - duration) < 1;
+    fitsAudio && Math.abs(scale - 1) < 0.08;
   if (alreadyAligned) return false;
 
   const scaleSegment = (seg) => {
@@ -1914,12 +2000,21 @@ function alignDraftTimingsToAudio(duration) {
     };
   };
   state.sttSegments = (state.sttSegments || []).map(scaleSegment);
+  if (state.turnSegments?.length) {
+    state.turnSegments = state.turnSegments.map((group) =>
+      (group || []).map(scaleSegment)
+    );
+    if (state.currentCall) {
+      state.currentCall.timing_segments = state.turnSegments;
+    }
+  }
 
   state.draft.forEach((msg, index) => {
     if (Number.isFinite(msg.start)) msg.start = roundTime(msg.start * scale + shift);
     if (Number.isFinite(msg.end)) msg.end = roundTime(msg.end * scale + shift);
     refreshTurnWordTimings(index);
   });
+  state.timingsAlignedCallId = state.currentCall?.id || null;
   return true;
 }
 
@@ -1976,15 +2071,13 @@ function scrollActiveTurnIntoView(index) {
   const block = els.transcriptGrid.querySelector(`.turn-block[data-index="${index}"]`);
   if (!block) return;
 
-  // Scroll only inside the workspace so the site header/metrics never leave view.
-  const scroller = els.workspace || block.closest(".workspace");
+  const scroller =
+    block.closest(".call-detail-body") || els.workspace || block.closest(".workspace");
   if (!scroller) return;
 
-  const sticky = scroller.querySelector(".sticky-top");
-  const stickyH = sticky ? sticky.offsetHeight : 0;
   const blockTop = block.offsetTop;
-  const visible = Math.max(120, scroller.clientHeight - stickyH);
-  const target = Math.max(0, blockTop - stickyH - visible * 0.28);
+  const visible = Math.max(120, scroller.clientHeight);
+  const target = Math.max(0, blockTop - visible * 0.28);
   const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
   scroller.scrollTo({
     top: Math.min(target, maxScroll),
@@ -2063,6 +2156,7 @@ function initWaveform(url) {
     if (alignDraftTimingsToAudio(duration)) {
       renderTranscript();
     }
+    rebuildPlaybackWordIndex();
     updateMeta();
     syncHighlight();
   });
@@ -2119,6 +2213,7 @@ function initWaveform(url) {
       if (alignDraftTimingsToAudio(duration)) {
         renderTranscript();
       }
+      rebuildPlaybackWordIndex();
       syncHighlight();
     };
   });
@@ -2194,7 +2289,7 @@ function renderTranscript({ preserveEdits = true } = {}) {
                 </label>
               </div>
               <div class="message-header-actions">
-                <div class="timing-editor" title="Edit turn timestamps (m:ss.sss)">
+                <div class="timing-editor" title="Edit turn timestamps (m:ss)">
                   <label class="sr-only" for="timing-start-${index}">Start time</label>
                   <input
                     id="timing-start-${index}"
@@ -2202,8 +2297,8 @@ function renderTranscript({ preserveEdits = true } = {}) {
                     class="timing-input timing-start"
                     data-index="${index}"
                     value="${escapeHtml(startValue)}"
-                    placeholder="0:00.000"
-                    inputmode="decimal"
+                    placeholder="0:00"
+                    inputmode="numeric"
                     aria-label="Start time"
                   />
                   <span class="timing-sep">–</span>
@@ -2214,8 +2309,8 @@ function renderTranscript({ preserveEdits = true } = {}) {
                     class="timing-input timing-end"
                     data-index="${index}"
                     value="${escapeHtml(endValue)}"
-                    placeholder="end (m:ss.sss)"
-                    inputmode="decimal"
+                    placeholder="0:00"
+                    inputmode="numeric"
                     aria-label="End time"
                   />
                   <button type="button" class="timing-action timing-use-playhead" data-index="${index}" title="Set start to current playback time" aria-label="Set start to playhead">⏱</button>
@@ -2272,15 +2367,20 @@ function renderTranscript({ preserveEdits = true } = {}) {
   });
 
   els.transcriptGrid.querySelectorAll(".delete-turn-btn").forEach((btn) => {
-    btn.onclick = () => {
+    btn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       if (state.draft.length <= 1) {
         showToast("Keep at least one turn");
         return;
       }
       syncDraftFromDom();
-      state.draft.splice(Number(btn.dataset.index), 1);
+      const index = Number(btn.dataset.index);
+      if (!Number.isFinite(index) || index < 0 || index >= state.draft.length) return;
+      state.draft.splice(index, 1);
       renderTranscript({ preserveEdits: false });
       updateMeta();
+      showToast("Turn removed — save to keep changes", "success");
     };
   });
 
@@ -2333,6 +2433,7 @@ function renderTranscript({ preserveEdits = true } = {}) {
       const end = roundTime(Math.min(duration || start + 2, start + 2));
       state.draft[index].start = start;
       state.draft[index].end = end > start ? end : roundTime(start + 0.5);
+      state.draft[index].timingTouched = true;
       refreshTurnWordTimings(index);
       renderTranscript({ preserveEdits: false });
       updateMeta();
@@ -2344,17 +2445,23 @@ function renderTranscript({ preserveEdits = true } = {}) {
   });
 
   els.transcriptGrid.querySelectorAll(".timing-input").forEach((input) => {
-    input.addEventListener("change", () => {
+    const applyTimingInput = () => {
       const index = Number(input.dataset.index);
       if (!state.draft[index]) return;
+      const parsed = parseTimeInput(input.value);
+      if (parsed == null) return;
       if (input.classList.contains("timing-start")) {
-        state.draft[index].start = parseTimeInput(input.value);
+        state.draft[index].start = parsed;
       } else {
-        state.draft[index].end = parseTimeInput(input.value);
+        state.draft[index].end = parsed;
       }
+      state.draft[index].timingTouched = true;
+      input.value = formatTimeInput(parsed);
       refreshTurnWordTimings(index);
       updateMeta();
-    });
+    };
+    input.addEventListener("input", applyTimingInput);
+    input.addEventListener("change", applyTimingInput);
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2386,13 +2493,22 @@ function renderTranscript({ preserveEdits = true } = {}) {
 
 function collectFinalMessages() {
   syncDraftFromDom();
-  return state.draft.map((msg) => ({
-    _id: msg._id,
-    role: msg.role,
-    type: "message",
-    createdAt: msg.createdAt || "",
-    content: msg.content,
-  }));
+  return state.draft.map((msg) => {
+    const entry = {
+      _id: msg._id,
+      role: msg.role,
+      type: "message",
+      createdAt: msg.createdAt || "",
+      content: msg.content,
+    };
+    if (msg.start != null && !Number.isNaN(msg.start)) {
+      entry.start = roundTime(Number(msg.start));
+    }
+    if (msg.end != null && !Number.isNaN(msg.end)) {
+      entry.end = roundTime(Number(msg.end));
+    }
+    return entry;
+  });
 }
 
 function collectTimings() {
@@ -2407,7 +2523,6 @@ function collectTimings() {
 function snapshotDraftState() {
   return JSON.stringify({
     messages: collectFinalMessages(),
-    timings: collectTimings(),
   });
 }
 
@@ -2588,8 +2703,41 @@ async function selectCall(callId) {
     row.classList.toggle("active", row.dataset.id === callId);
   });
 
+  const cached = state.callCache.get(callId);
+  if (cached && Date.now() - cached.fetchedAt < state.callCacheTtlMs) {
+    applyCallToUi(cached.data);
+    prefetchCall(cached.data.prevId);
+    prefetchCall(cached.data.nextId);
+    return;
+  }
+
   const call = await fetchJSON(apiUrl(`/api/calls/${callId}`));
+  state.callCache.set(callId, {
+    key: callCacheKey(call),
+    fetchedAt: Date.now(),
+    data: call,
+  });
+  applyCallToUi(call);
+  prefetchCall(call.prevId);
+  prefetchCall(call.nextId);
+}
+
+function callCacheKey(call) {
+  return [
+    call.updatedAt || "",
+    call.status || "",
+    call.editedBy || "",
+    call.verifiedAt || "",
+    call.verifiedOnceAt || "",
+    call.label?.domain || "",
+    call.label?.subdomain || "",
+    call.sttGeneratedAt || "",
+  ].join("|");
+}
+
+function applyCallToUi(call) {
   state.currentCall = call;
+  state.timingsAlignedCallId = null;
   buildDraft(call);
 
   els.emptyState.classList.add("hidden");
@@ -2606,11 +2754,28 @@ async function selectCall(callId) {
   refreshSavedSnapshot();
   updateMeta();
   updateNavButtons();
-  // Keep top chrome visible — reset workspace scroll when opening a recording.
+  const detailTop = document.getElementById("callDetailTop");
+  const detailBody = els.callDetail?.querySelector(".call-detail-body");
+  if (detailTop) detailTop.scrollTo({ top: 0, behavior: "auto" });
+  if (detailBody) detailBody.scrollTo({ top: 0, behavior: "auto" });
   if (els.workspace) {
     els.workspace.scrollTo({ top: 0, behavior: "auto" });
   }
-  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function prefetchCall(callId) {
+  if (!callId) return;
+  const cached = state.callCache.get(callId);
+  if (cached && Date.now() - cached.fetchedAt < state.callCacheTtlMs) return;
+  fetchJSON(apiUrl(`/api/calls/${callId}`))
+    .then((call) => {
+      state.callCache.set(callId, {
+        key: callCacheKey(call),
+        fetchedAt: Date.now(),
+        data: call,
+      });
+    })
+    .catch(() => {});
 }
 
 async function saveFinal() {
@@ -2626,9 +2791,14 @@ async function saveFinal() {
     const result = await fetchJSON(apiUrl(`/api/calls/${state.currentCall.id}/correct`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, timings }),
+      body: JSON.stringify({
+        messages,
+        timings,
+        turnLayoutEdited: isTurnLayoutEdited(),
+      }),
     });
     state.currentCall.edited = true;
+    state.currentCall.turnLayoutEdited = isTurnLayoutEdited();
     state.currentCall.status = "edited";
     state.currentCall.updatedAt = result.updatedAt;
     state.currentCall.editedBy = result.editedBy;
@@ -2640,7 +2810,15 @@ async function saveFinal() {
     state.currentCall.unfitAt = null;
     state.currentCall.unfitReason = "";
     state.currentCall.final_messages = result.messages || messages;
-    state.currentCall.timings = timings;
+    state.currentCall.timings = result.timings || timings;
+    state.currentCall.turnLayoutEdited = Boolean(
+      result.turnLayoutEdited ?? state.currentCall.turnLayoutEdited
+    );
+    state.callCache.set(state.currentCall.id, {
+      key: callCacheKey(state.currentCall),
+      fetchedAt: Date.now(),
+      data: state.currentCall,
+    });
     buildDraft(state.currentCall);
     renderTranscript({ preserveEdits: false });
     refreshSavedSnapshot();
@@ -2777,6 +2955,7 @@ async function switchDataset(dataset) {
   state.selectedCallIds = new Set();
   state.currentCall = null;
   state.draft = [];
+  state.callCache.clear();
   els.search.value = "";
   els.statusFilter.value = "all";
   if (els.domainFilter) els.domainFilter.value = "";
@@ -3243,11 +3422,19 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+let statsPollTimer = null;
+
+function scheduleStatsPoll() {
+  if (statsPollTimer) clearTimeout(statsPollTimer);
+  const interval = sttRunning || labelRunning ? 15000 : 45000;
+  statsPollTimer = setTimeout(async () => {
+    await loadStats({ refreshCalls: true });
+    scheduleStatsPoll();
+  }, interval);
+}
+
 updateDatasetChrome();
 loadLabelSuggestions();
-loadStats();
-loadCalls();
-
-setInterval(() => {
-  loadStats({ refreshCalls: true });
-}, 20000);
+Promise.all([loadStats(), loadCalls()]).finally(() => {
+  scheduleStatsPoll();
+});

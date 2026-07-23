@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}" />
   <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
 </head>
 <body data-can-manage-sarvam="{{ 'true' if can_manage_sarvam else 'false' }}" data-can-manage-label="{{ 'true' if can_manage_label else 'false' }}">
@@ -196,7 +196,7 @@
         </div>
 
         <div class="call-detail hidden" id="callDetail">
-          <div class="sticky-top">
+            <div class="call-detail-top" id="callDetailTop">
             <div class="detail-header">
               <div class="detail-heading">
                 <div class="call-title-row">
@@ -230,31 +230,31 @@
             </div>
 
             <div class="label-panel" id="labelPanel">
-              <div class="label-panel-header">
-                <h3>Classification</h3>
-                <span class="label-status-chip" id="labelStatusChip">Unlabeled</span>
-              </div>
-              <div class="label-grid">
-                <label class="label-field">
+              <div class="label-panel-compact">
+                <div class="label-panel-title">
+                  <h3>Classification</h3>
+                  <span class="label-status-chip" id="labelStatusChip">Unlabeled</span>
+                </div>
+                <label class="label-field label-field-inline">
                   <span>Domain</span>
-                  <input type="text" id="labelDomainInput" list="labelDomainSuggestions" placeholder="e.g. finance, healthcare" autocomplete="off" />
+                  <input type="text" id="labelDomainInput" list="labelDomainSuggestions" placeholder="finance" autocomplete="off" />
                   <datalist id="labelDomainSuggestions"></datalist>
                 </label>
-                <label class="label-field">
+                <label class="label-field label-field-inline">
                   <span>Subdomain</span>
-                  <input type="text" id="labelSubdomainInput" list="labelSubdomainSuggestions" placeholder="e.g. gold_loan, cardio" autocomplete="off" />
+                  <input type="text" id="labelSubdomainInput" list="labelSubdomainSuggestions" placeholder="gold_loan" autocomplete="off" />
                   <datalist id="labelSubdomainSuggestions"></datalist>
                 </label>
+                <div class="label-actions">
+                  <button type="button" class="btn primary btn-sm" id="saveLabelBtn">Save</button>
+                  <button type="button" class="btn secondary btn-sm" id="resetLabelBtn">Reset</button>
+                  <button type="button" class="btn ghost btn-sm" id="clearLabelBtn">Clear</button>
+                  {% if can_manage_label %}
+                  <button type="button" class="btn ghost btn-sm" id="rerunLabelBtn">Re-run</button>
+                  {% endif %}
+                </div>
               </div>
               <p class="label-auto-hint" id="labelAutoHint"></p>
-              <div class="label-actions">
-                <button type="button" class="btn primary btn-sm" id="saveLabelBtn">Save label</button>
-                <button type="button" class="btn secondary btn-sm" id="resetLabelBtn">Reset to auto</button>
-                <button type="button" class="btn ghost btn-sm" id="clearLabelBtn">Clear</button>
-                {% if can_manage_label %}
-                <button type="button" class="btn ghost btn-sm" id="rerunLabelBtn">Re-run AI</button>
-                {% endif %}
-              </div>
             </div>
 
             <div class="audio-panel">
@@ -301,12 +301,14 @@
               </div>
               <audio id="player" preload="metadata" class="hidden-audio"></audio>
             </div>
-          </div>
+            </div>
 
+          <div class="call-detail-body">
           <div class="transcript-help">
             Final starts as a draft (not saved). Press <kbd>Tab</kbd> on a Latin Hindi word to pick देवनागरी or keep Latin.
           </div>
           <div class="transcript-grid" id="transcriptGrid"></div>
+          </div>
         </div>
       </section>
     </main>
@@ -358,6 +360,6 @@
 
   <div class="suggest-popup hidden" id="suggestPopup"></div>
   <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ asset_version }}"></script>
 </body>
 </html>

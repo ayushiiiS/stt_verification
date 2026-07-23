@@ -1,5 +1,16 @@
 {
   "buildCommand": "mkdir -p public && rm -rf public/static && cp -R static public/static",
+  "headers": [
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/((?!static/).*)", "destination": "/api/index" }
   ],

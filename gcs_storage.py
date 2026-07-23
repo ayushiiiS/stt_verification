@@ -1149,6 +1149,34 @@ def push_dataset_file(uploads_dir: Path, dataset: str, filename: str) -> bool:
                 ok = push_transcript_final(dataset, str(call_id), entry) and ok
         return ok
 
+    if filename == "call_labels.json":
+        try:
+            payload = json.loads(local.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+        ok = True
+        for call_id, entry in payload.items():
+            if not isinstance(entry, dict):
+                continue
+            try:
+                ok = push_labels(dataset, str(call_id), entry, overwrite=False) and ok
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"GCS labels create skipped ({dataset}/{call_id}): {exc}",
+                    flush=True,
+                )
+                try:
+                    ok = push_labels(dataset, str(call_id), entry, overwrite=True) and ok
+                except Exception as retry_exc:  # noqa: BLE001
+                    print(
+                        f"GCS labels push failed ({dataset}/{call_id}): {retry_exc}",
+                        flush=True,
+                    )
+                    ok = False
+        return ok
+
     # Unknown file: store under agent root
     return mirror_local(local, f"{agent_folder(dataset)}/{filename}")
 

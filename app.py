@@ -290,6 +290,40 @@ def load_labels_file(dataset: str, path: Path | None = None) -> None:
         labels_by_dataset[dataset] = {}
 
 
+def refresh_labels_store(dataset: str) -> None:
+    """Reload label aggregate from disk/GCS so export includes latest labels."""
+    try:
+        gcs_storage.hydrate_aggregate_local(
+            UPLOADS_DIR, dataset, "call_labels.json", prefer_remote=True
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS label aggregate hydrate failed ({dataset}): {exc}", flush=True)
+    load_labels_file(dataset)
+
+
+def ensure_label_loaded(dataset: str, call_id: str) -> dict | None:
+    """Resolve a call label from memory, aggregate file, or per-call GCS."""
+    store = labels_by_dataset.setdefault(dataset, {})
+    entry = store.get(call_id)
+    if isinstance(entry, dict) and (entry.get("domain") or entry.get("subdomain")):
+        return entry
+
+    refresh_labels_store(dataset)
+    entry = labels_by_dataset.get(dataset, {}).get(call_id)
+    if isinstance(entry, dict) and (entry.get("domain") or entry.get("subdomain")):
+        return entry
+
+    try:
+        remote = gcs_storage.download_labels(dataset, call_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"GCS label fetch failed ({dataset}/{call_id}): {exc}", flush=True)
+        remote = None
+    if isinstance(remote, dict) and (remote.get("domain") or remote.get("subdomain")):
+        labels_by_dataset[dataset][call_id] = remote
+        return remote
+    return entry if isinstance(entry, dict) else None
+
+
 def save_label_entry(dataset: str, call_id: str) -> None:
     ensure_dataset_dirs(dataset)
     entry = labels_by_dataset[dataset].get(call_id)
@@ -1036,8 +1070,13 @@ def resolve_export_call_ids(
 
 
 def build_export_entry(dataset: str, call_id: str, saved: dict) -> dict:
+    label_entry = ensure_label_loaded(dataset, call_id) or {}
+    domain = str(label_entry.get("domain") or "").strip()
+    subdomain = str(label_entry.get("subdomain") or "").strip()
     return {
         "callLogId": call_id,
+        "domain": domain,
+        "subdomain": subdomain,
         "messages": saved.get("messages") or [],
         "updatedAt": saved.get("updatedAt"),
         "editedBy": saved.get("editedBy") or "",
@@ -1047,7 +1086,24 @@ def build_export_entry(dataset: str, call_id: str, saved: dict) -> dict:
         "verifiedAt": saved.get("verifiedAt"),
         "status": review_status(saved),
         "public_url": calls_by_id[dataset].get(call_id, {}).get("public_url", ""),
+        "label": label_public_view(label_entry if domain or subdomain else None),
     }
+
+
+def turn_layout_was_edited(
+    saved: dict | None, original_messages: list[dict], final_messages: list[dict]
+) -> bool:
+    """True when the reviewer intentionally added/removed turns (not a partial save)."""
+    if not saved:
+        return False
+    if saved.get("turnLayoutEdited"):
+        return True
+    if len(final_messages) >= len(original_messages):
+        return False
+    orig_ids = [msg.get("_id") for msg in original_messages]
+    saved_ids = [msg.get("_id") for msg in final_messages]
+    # Partial/corrupt saves keep the first N original turns in order.
+    return saved_ids != orig_ids[: len(saved_ids)]
 
 
 def build_call_payload(dataset: str, call_id: str) -> dict:
@@ -1070,9 +1126,12 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
             final_messages = default_final_messages(
                 original_messages, stt_messages, has_stt=has_stt
             )
-        elif len(final_messages) < len(original_messages):
+        elif len(final_messages) < len(original_messages) and not turn_layout_was_edited(
+            saved, original_messages, final_messages
+        ):
             # Partial/corrupt saves (e.g. a single test turn) must not hide the
             # rest of the transcript — pad missing turns from Original.
+            # Skipped when the reviewer intentionally deleted turns.
             final_messages = list(final_messages) + [
                 {
                     **msg,
@@ -1138,6 +1197,9 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         "timings": timings,
         "timing_segments": turn_segment_groups,
         "edited": call_id in corrections[dataset],
+        "turnLayoutEdited": turn_layout_was_edited(
+            saved, original_messages, final_messages
+        ),
         "status": review_status(saved),
         "editedBy": (saved or {}).get("editedBy") or "",
         "verifiedOnceBy": (saved or {}).get("verifiedOnceBy") or "",
@@ -1582,6 +1644,7 @@ def save_correct(call_id: str):
             "number": recording_number(dataset, call_id),
             "callLogId": call_id,
             "messages": cleaned,
+            "turnLayoutEdited": bool(payload.get("turnLayoutEdited")),
             "updatedAt": datetime.now(timezone.utc).isoformat(),
             "editedBy": reviewer,
             # Re-saving clears verification so two reviewers must re-verify
@@ -1609,6 +1672,8 @@ def save_correct(call_id: str):
             "editedBy": reviewer,
             "status": "edited",
             "messages": saved["messages"],
+            "timings": saved.get("timings") or [],
+            "turnLayoutEdited": bool(saved.get("turnLayoutEdited")),
         }
     )
 
@@ -1870,6 +1935,7 @@ def export_preview():
 @app.route("/api/export", methods=["POST"])
 def export_transcripts():
     dataset = resolve_dataset()
+    refresh_labels_store(dataset)
     payload = request.get_json(silent=True) or {}
     call_ids = payload.get("call_ids")
     if call_ids is not None and not isinstance(call_ids, list):
@@ -1908,6 +1974,7 @@ def export_transcripts():
 @app.route("/api/export/verified")
 def export_verified():
     dataset = resolve_dataset()
+    refresh_labels_store(dataset)
     ids = resolve_export_call_ids(dataset, status="verified")
     export_data: dict[str, dict] = {}
     for call_id in ids:

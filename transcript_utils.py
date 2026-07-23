@@ -213,7 +213,7 @@ def match_segments_to_turns(
             combined = _segment_content(sorted_segs[best_i])
             orig_words = len(content.split())
 
-            while len(matched) < 4 and len(combined.split()) < orig_words * 0.55:
+            while len(matched) < 8 and len(combined.split()) < orig_words * 0.72:
                 nxt_i = best_i + len(matched)
                 if nxt_i >= len(sorted_segs) or nxt_i in used:
                     break
@@ -230,7 +230,7 @@ def match_segments_to_turns(
                 if (
                     prev_end is not None
                     and nxt_start is not None
-                    and nxt_start - prev_end > 2.5
+                    and nxt_start - prev_end > 4.0
                 ):
                     break
                 used.add(nxt_i)
@@ -259,7 +259,69 @@ def timings_from_matched_segments(turn_segments: list[list[dict]]) -> list[dict]
                 "end": max(ends) if ends else None,
             }
         )
-    return timings
+    return refine_turn_timings(timings)
+
+
+def usable_timing_bounds(start, end) -> bool:
+    s = _as_float(start)
+    e = _as_float(end)
+    return s is not None and e is not None and e > s + 0.01
+
+
+def merge_stt_and_saved_timing(
+    saved_start,
+    saved_end,
+    stt_start,
+    stt_end,
+    *,
+    edited: bool,
+) -> tuple[float | None, float | None]:
+    """Prefer STT segment bounds; keep human overrides on edited saves."""
+    has_stt = usable_timing_bounds(stt_start, stt_end)
+    has_saved = usable_timing_bounds(saved_start, saved_end)
+    if has_stt and not has_saved:
+        return round(float(stt_start), 3), round(float(stt_end), 3)
+    if has_saved and not has_stt:
+        return round(float(saved_start), 3), round(float(saved_end), 3)
+    if not has_stt and not has_saved:
+        return None, None
+    s_saved = float(saved_start)
+    e_saved = float(saved_end)
+    s_stt = float(stt_start)
+    e_stt = float(stt_end)
+    saved_span = e_saved - s_saved
+    stt_span = max(e_stt - s_stt, 0.01)
+    differs = abs(s_saved - s_stt) > 0.75 or abs(e_saved - e_stt) > 0.75
+    # Keep saved only when it looks like a deliberate manual trim, not coarse auto timing.
+    if edited and differs and saved_span <= stt_span * 1.5:
+        return round(s_saved, 3), round(e_saved, 3)
+    return round(s_stt, 3), round(e_stt, 3)
+
+
+def refine_turn_timings(
+    timings: list[dict], *, min_gap: float = 0.05
+) -> list[dict]:
+    """Tighten turn windows: avoid overlap and zero-length spans."""
+    refined: list[dict] = []
+    for i, entry in enumerate(timings):
+        start = _as_float(entry.get("start"))
+        end = _as_float(entry.get("end"))
+        if i + 1 < len(timings):
+            next_start = _as_float(timings[i + 1].get("start"))
+            if (
+                end is not None
+                and next_start is not None
+                and end > next_start - min_gap
+            ):
+                end = round(next_start - min_gap, 3)
+        if start is not None:
+            start = round(start, 3)
+        if end is not None:
+            end = round(end, 3)
+        if start is not None and end is not None and end <= start:
+            end = round(start + 0.1, 3)
+        refined.append({"start": start, "end": end})
+    return refined
 
 
 def align_stt_segments(
@@ -510,17 +572,58 @@ def clean_saved_messages(edited_messages: list[dict]) -> list[dict]:
         role = edited.get("role", "assistant")
         if role not in {"user", "assistant"}:
             role = "assistant"
-        cleaned.append(
-            {
-                "n": i,
-                "_id": edited.get("_id") or f"added-{i}",
-                "role": role,
-                "type": "message",
-                "createdAt": edited.get("createdAt", ""),
-                "content": str(edited.get("content", "")),
-            }
-        )
+        entry: dict = {
+            "n": i,
+            "_id": edited.get("_id") or f"added-{i}",
+            "role": role,
+            "type": "message",
+            "createdAt": edited.get("createdAt", ""),
+            "content": str(edited.get("content", "")),
+        }
+        start = _as_float(edited.get("start"))
+        end = _as_float(edited.get("end"))
+        if start is not None:
+            entry["start"] = round(start, 3)
+        if end is not None:
+            entry["end"] = round(end, 3)
+        cleaned.append(entry)
     return cleaned
+
+
+def timings_from_messages(messages: list[dict]) -> list[dict]:
+    """Extract per-turn audio bounds stored on each message."""
+    timings: list[dict] = []
+    for msg in messages:
+        start = _as_float(msg.get("start"))
+        end = _as_float(msg.get("end"))
+        if start is not None:
+            start = round(start, 3)
+        if end is not None:
+            end = round(end, 3)
+        timings.append({"start": start, "end": end})
+    return timings
+
+
+def apply_timings_to_messages(
+    messages: list[dict], timings: list[dict] | None
+) -> list[dict]:
+    """Fill missing message start/end from a parallel timings array."""
+    if not timings:
+        return messages
+    out: list[dict] = []
+    for i, msg in enumerate(messages):
+        merged = dict(msg)
+        timing = timings[i] if i < len(timings) and isinstance(timings[i], dict) else {}
+        if _as_float(merged.get("start")) is None:
+            start = _as_float(timing.get("start"))
+            if start is not None:
+                merged["start"] = round(start, 3)
+        if _as_float(merged.get("end")) is None:
+            end = _as_float(timing.get("end"))
+            if end is not None:
+                merged["end"] = round(end, 3)
+        out.append(merged)
+    return out
 
 
 def clean_saved_timings(raw_timings: list | None, turn_count: int) -> list[dict]:
