@@ -3,6 +3,7 @@ const DATASET_LABELS = {
   abhfl: "ABHFL",
   amber: "Amber",
   muthoot: "Muthoot",
+  "karan-spinny": "Karan Spinny",
 };
 
 const AUDIO_SYNC_STORAGE_KEY = "golden_set_audio_sync";

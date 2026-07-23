@@ -19,7 +19,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 import httpx
 
@@ -346,11 +346,40 @@ def _download_gcs_audio(url: str, dest: Path) -> bool:
         return False
 
 
+def _is_signed_gcs_url(url: str) -> bool:
+    query = (urlparse(url).query or "").lower()
+    return any(
+        marker in query
+        for marker in (
+            "x-goog-signature=",
+            "x-goog-algorithm=",
+            "googaccessid=",
+            "signature=",
+        )
+    )
+
+
+def _sanitize_audio_url(url: str) -> str:
+    """Drop invalid query params on GCS URLs (e.g. legacy api_key=...).
+
+    Signed URLs must keep their query string intact.
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return raw
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    if host not in {"storage.googleapis.com", "storage.cloud.google.com"}:
+        return raw
+    if not parsed.query or _is_signed_gcs_url(raw):
+        return raw
+    # Unsigned GCS URL with junk query (e.g. ?api_key=...) — fetch path only.
+    return urlunparse(parsed._replace(query="", fragment=""))
+
+
 def _download_audio(url: str, dest: Path) -> None:
-    # Signed URLs must be fetched over HTTP with query params intact.
-    if "X-Goog-Signature=" in url or "X-Goog-Algorithm=" in url:
-        pass
-    elif _download_gcs_audio(url, dest):
+    url = _sanitize_audio_url(url)
+    if not _is_signed_gcs_url(url) and _download_gcs_audio(url, dest):
         return
 
     last_error: Exception | None = None

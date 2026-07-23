@@ -43,6 +43,7 @@ AGENT_FOLDERS: dict[str, str] = {
     "abhfl": "ABHFL",
     "amber": "Amber",
     "muthoot": "Muthoot",
+    "karan-spinny": "KaranSpinny",
 }
 
 FOLDER_TO_DATASET: dict[str, str] = {v.lower(): k for k, v in AGENT_FOLDERS.items()}
@@ -1079,7 +1080,9 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
     return result
 
 
-def push_dataset_file(uploads_dir: Path, dataset: str, filename: str) -> bool:
+def push_dataset_file(
+    uploads_dir: Path, dataset: str, filename: str, *, upload_audio: bool = False
+) -> bool:
     """
     Compatibility shim.
     - stt_progress.json -> agent/stt_progress.json
@@ -1096,13 +1099,18 @@ def push_dataset_file(uploads_dir: Path, dataset: str, filename: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         print(f"GCS aggregate mirror failed ({dataset}/{filename}): {exc}", flush=True)
 
-    if filename == "stt_progress.json":
+    if filename in {"stt_progress.json", "label_progress.json"}:
         # Versioned aggregate is enough for serverless hydrate; flat key is best-effort.
+        flat_key = (
+            stt_progress_key(dataset)
+            if filename == "stt_progress.json"
+            else f"{agent_folder(dataset)}/{filename}"
+        )
         try:
-            mirror_local(local, stt_progress_key(dataset))
+            mirror_local(local, flat_key)
         except Exception as exc:  # noqa: BLE001
             print(
-                f"GCS stt_progress flat mirror skipped ({dataset}): {exc}",
+                f"GCS {filename} flat mirror skipped ({dataset}): {exc}",
                 flush=True,
             )
         return True

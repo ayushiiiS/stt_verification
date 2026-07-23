@@ -98,7 +98,12 @@ DATASET_META = (
     {"id": "abhfl", "label": "ABHFL"},
     {"id": "amber", "label": "Amber"},
     {"id": "muthoot", "label": "Muthoot"},
+    {"id": "karan-spinny", "label": "Karan Spinny"},
 )
+# Local bootstrap JSON when uploads/<id>/calls.json is missing (under data/).
+DATASET_BOOTSTRAP_FILES: dict[str, str] = {
+    "karan-spinny": "spinny-karan.json",
+}
 DATASETS = tuple(item["id"] for item in DATASET_META)
 
 app = Flask(__name__)
@@ -676,7 +681,8 @@ def load_data() -> None:
 def load_uploaded_dataset(dataset: str) -> None:
     path = upload_calls_path(dataset)
     if not path.exists():
-        bootstrap = BASE_DIR / "data" / f"{dataset}.json"
+        bootstrap_name = DATASET_BOOTSTRAP_FILES.get(dataset, f"{dataset}.json")
+        bootstrap = BASE_DIR / "data" / bootstrap_name
         if bootstrap.exists():
             ensure_dataset_dirs(dataset)
             shutil.copy2(bootstrap, path)
