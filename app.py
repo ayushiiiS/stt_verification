@@ -66,6 +66,7 @@ from transcript_utils import (
 
 BASE_DIR = Path(__file__).resolve().parent
 ALL_DATA_DIR = BASE_DIR / "all_data"
+HANDOFF_DIR = BASE_DIR / "handoff"
 
 
 def _resolve_uploads_dir() -> Path:
@@ -104,6 +105,15 @@ DATASET_META = (
 DATASET_BOOTSTRAP_FILES: dict[str, str] = {
     "karan-spinny": "spinny-karan.json",
 }
+# MMS_FA batch outputs under handoff/ (copied into uploads on first load).
+ALIGNED_TIMINGS_BOOTSTRAP_FILES: dict[str, str] = {
+    "karan-spinny": "all_data/spinny_aligned_timings.json",
+    "indiamart": "all_data/indiamart_aligned_timings.json",
+}
+ALIGN_SERVICE_URL = (os.environ.get("ALIGN_SERVICE_URL") or "http://127.0.0.1:8081").rstrip(
+    "/"
+)
+ALIGN_API_KEY = (os.environ.get("ALIGN_API_KEY") or "").strip()
 DATASETS = tuple(item["id"] for item in DATASET_META)
 
 app = Flask(__name__)
@@ -122,6 +132,7 @@ _transliterate_cache: dict[str, list[str]] = {}
 _transliterate_http: Any | None = None
 sarvam_by_dataset: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
 labels_by_dataset: dict[str, dict[str, dict]] = {name: {} for name in DATASETS}
+aligned_timings: dict[str, dict[str, list]] = {name: {} for name in DATASETS}
 phrase_cache: dict[str, list[dict]] = {}
 _data_loaded = False
 
@@ -184,6 +195,79 @@ def corrections_path_for(dataset: str) -> Path:
 
 def upload_calls_path(dataset: str) -> Path:
     return UPLOADS_DIR / dataset / "calls.json"
+
+
+def aligned_timings_path(dataset: str) -> Path:
+    return UPLOADS_DIR / dataset / "aligned_timings.json"
+
+
+def bootstrap_aligned_timings(dataset: str) -> None:
+    """Seed uploads from handoff batch FA output when local file is missing."""
+    local = aligned_timings_path(dataset)
+    if local.exists() and local.stat().st_size > 2:
+        return
+    rel = ALIGNED_TIMINGS_BOOTSTRAP_FILES.get(dataset)
+    if not rel:
+        return
+    source = HANDOFF_DIR / rel
+    if not source.exists():
+        return
+    ensure_dataset_dirs(dataset)
+    shutil.copy2(source, local)
+
+
+def load_aligned_timings(dataset: str) -> None:
+    bootstrap_aligned_timings(dataset)
+    merged: dict[str, list] = {}
+    path = aligned_timings_path(dataset)
+    if path.exists():
+        try:
+            with path.open(encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                merged.update(
+                    {
+                        str(call_id): timings
+                        for call_id, timings in data.items()
+                        if not str(call_id).startswith("_")
+                        and isinstance(timings, list)
+                    }
+                )
+        except json.JSONDecodeError:
+            pass
+    aligned_timings[dataset] = merged
+
+
+def save_aligned_timings(dataset: str) -> None:
+    ensure_dataset_dirs(dataset)
+    path = aligned_timings_path(dataset)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(aligned_timings[dataset], handle, ensure_ascii=False, indent=2)
+    tmp.replace(path)
+    gcs_storage.push_dataset_file(UPLOADS_DIR, dataset, "aligned_timings.json")
+
+
+def timings_from_fa_store(aligned: list, turn_count: int) -> list[dict]:
+    """Map MMS_FA batch rows ({turn, start_s, end_s}) onto transcript turn indices."""
+    timings = [{"start": None, "end": None} for _ in range(turn_count)]
+    for position, item in enumerate(aligned):
+        if not isinstance(item, dict):
+            continue
+        raw_turn = item.get("turn", position)
+        try:
+            turn = int(raw_turn)
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= turn < turn_count:
+            continue
+        start = item.get("start_s", item.get("start"))
+        end = item.get("end_s", item.get("end"))
+        timings[turn] = {
+            "start": float(start) if start is not None else None,
+            "end": float(end) if end is not None else None,
+        }
+    return timings
 
 
 def ensure_dataset_dirs(dataset: str) -> None:
@@ -621,6 +705,8 @@ def ensure_dataset_loaded(dataset: str) -> None:
             reload_sarvam_transcripts(key)
         if "call_labels.json" in pulled or not labels_by_dataset.get(key):
             load_labels_file(key)
+        if "aligned_timings.json" in pulled or not aligned_timings.get(key):
+            load_aligned_timings(key)
         return
     try:
         gcs_storage.sync_dataset_dir(UPLOADS_DIR, key, prefer_remote=True)
@@ -629,14 +715,17 @@ def ensure_dataset_loaded(dataset: str) -> None:
         corrections[key] = {}
         sarvam_by_dataset[key] = {}
         labels_by_dataset[key] = {}
+        aligned_timings[key] = {}
         phrase_cache.pop(key, None)
         if key == "indiamart":
             load_indiamart()
             load_labels_file(key)
+            load_aligned_timings(key)
         else:
             load_corrections_file(key, corrections_path_for(key))
             load_labels_file(key)
             load_uploaded_dataset(key)
+            load_aligned_timings(key)
             path = dataset_sarvam_path(UPLOADS_DIR, key)
             if path.exists():
                 try:
@@ -667,6 +756,7 @@ def load_data() -> None:
         corrections[name] = {}
         sarvam_by_dataset[name] = {}
         labels_by_dataset[name] = {}
+        aligned_timings[name] = {}
     phrase_cache.clear()
     _hydrated_datasets.clear()
     gcs_storage.hydrate_users_file(UPLOADS_DIR / "users.json", prefer_remote=True)
@@ -890,7 +980,13 @@ def get_turn_timings(
     turn_count: int,
     original_messages: list[dict] | None = None,
 ) -> list[dict]:
-    """Prefer text-matched Sarvam segment bounds; createdAt is fallback."""
+    """Prefer MMS_FA forced alignment, then Sarvam segment bounds; createdAt is fallback."""
+    fa_rows = aligned_timings.get(dataset, {}).get(call_id)
+    if fa_rows:
+        fa_timings = timings_from_fa_store(fa_rows, turn_count)
+        if any(t.get("start") is not None for t in fa_timings):
+            return fa_timings
+
     originals = original_messages or []
     entry = sarvam_by_dataset.get(dataset, {}).get(call_id) or {}
     segments = entry.get("segments") or []
@@ -2302,6 +2398,86 @@ def auto_label_call(call_id: str):
     labels_by_dataset[dataset][call_id] = entry
     save_label_entry(dataset, call_id)
     return jsonify({"ok": True, "label": label_public_view(entry)})
+
+
+@app.route("/api/calls/<call_id>/align", methods=["POST"])
+def align_call(call_id: str):
+    """Run MMS_FA forced alignment via the align microservice (single-track mix)."""
+    import requests as http_requests
+
+    dataset = resolve_dataset()
+    if call_id not in calls_by_id[dataset]:
+        return jsonify({"error": "Call not found"}), 404
+
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+
+    call = calls_by_id[dataset][call_id]
+    audio_url = (
+        call.get("public_url")
+        or call.get("recordingUrl")
+        or call.get("recording_url")
+        or ""
+    )
+    if not audio_url:
+        return jsonify({"error": "This call has no audio URL to align against"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        messages = build_call_payload(dataset, call_id).get("final_messages", [])
+
+    turns = []
+    for i, msg in enumerate(messages):
+        content = (msg.get("content") or "").strip() if isinstance(msg, dict) else ""
+        turns.append({"turn": i, "reference": content})
+
+    if not any(t["reference"] for t in turns):
+        return jsonify({"error": "No transcript text to align"}), 400
+
+    try:
+        pad_s = float(payload.get("pad_s", 0.15))
+    except (TypeError, ValueError):
+        pad_s = 0.15
+
+    headers = {"Content-Type": "application/json"}
+    if ALIGN_API_KEY:
+        headers["Authorization"] = f"Bearer {ALIGN_API_KEY}"
+
+    try:
+        resp = http_requests.post(
+            f"{ALIGN_SERVICE_URL}/align",
+            json={"audio_url": audio_url, "turns": turns, "pad_s": pad_s},
+            headers=headers,
+            timeout=180,
+        )
+    except http_requests.RequestException as exc:
+        return jsonify(
+            {
+                "error": f"Could not reach alignment service at {ALIGN_SERVICE_URL}. "
+                f"Is it running? ({exc})"
+            }
+        ), 503
+
+    if resp.status_code != 200:
+        detail = ""
+        try:
+            detail = resp.json().get("detail", "")
+        except ValueError:
+            detail = resp.text[:200]
+        return jsonify({"error": f"Alignment failed: {detail or resp.status_code}"}), 502
+
+    aligned_turns = (resp.json() or {}).get("turns", [])
+    by_turn = {int(t.get("turn", -1)): t for t in aligned_turns}
+    timings: list[dict] = []
+    for i in range(len(turns)):
+        t = by_turn.get(i, {})
+        timings.append({"start": t.get("start_s"), "end": t.get("end_s")})
+
+    aligned_timings[dataset][call_id] = timings
+    save_aligned_timings(dataset)
+
+    return jsonify({"ok": True, "timings": timings})
 
 
 @app.route("/api/phrases")

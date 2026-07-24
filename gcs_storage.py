@@ -950,6 +950,7 @@ def _aggregate_needs_hydrate(path: Path) -> bool:
 COMPANION_AGGREGATES = (
     "sarvam_transcripts.json",
     "corrected_transcripts.json",
+    "aligned_timings.json",
     "stt_progress.json",
     "call_labels.json",
     "label_progress.json",
@@ -1016,6 +1017,7 @@ def sync_dataset_dir(uploads_dir: Path, dataset: str, *, prefer_remote: bool = T
         "calls.json",
         "corrected_transcripts.json",
         "sarvam_transcripts.json",
+        "aligned_timings.json",
         "stt_progress.json",
         "call_labels.json",
         "label_progress.json",
@@ -1113,6 +1115,9 @@ def push_dataset_file(
                 f"GCS {filename} flat mirror skipped ({dataset}): {exc}",
                 flush=True,
             )
+        return True
+
+    if filename == "aligned_timings.json":
         return True
 
     if filename == "calls.json":
@@ -1343,7 +1348,10 @@ def migrate_local_uploads_to_gcs(
         aggregate_files = (
             "sarvam_transcripts.json",
             "corrected_transcripts.json",
+            "aligned_timings.json",
+            "call_labels.json",
             "stt_progress.json",
+            "label_progress.json",
         )
         if not aggregates_only:
             aggregate_files = ("calls.json",) + aggregate_files
