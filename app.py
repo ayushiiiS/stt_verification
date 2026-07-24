@@ -109,6 +109,7 @@ DATASET_BOOTSTRAP_FILES: dict[str, str] = {
 ALIGNED_TIMINGS_BOOTSTRAP_FILES: dict[str, str] = {
     "karan-spinny": "all_data/spinny_aligned_timings.json",
     "indiamart": "all_data/indiamart_aligned_timings.json",
+    "muthoot": "all_data/muthoot_aligned_timings.json",
 }
 ALIGN_SERVICE_URL = (os.environ.get("ALIGN_SERVICE_URL") or "http://127.0.0.1:8081").rstrip(
     "/"

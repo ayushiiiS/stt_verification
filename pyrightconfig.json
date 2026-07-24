@@ -1,5 +1,14 @@
 {
   "venvPath": ".",
   "venv": ".venv",
-  "pythonVersion": "3.14"
+  "pythonVersion": "3.14",
+  "executionEnvironments": [
+    {
+      "root": "handoff/align_service",
+      "venv": ".venv",
+      "venvPath": "handoff/align_service",
+      "pythonVersion": "3.11",
+      "reportMissingImports": "none"
+    }
+  ]
 }

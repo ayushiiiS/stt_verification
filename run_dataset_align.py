@@ -27,6 +27,7 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 DATASET_CALLS = {
     "karan-spinny": ("data/spinny-karan.json", "all_data/spinny_aligned_timings.json"),
     "indiamart": ("data/indiamart.json", "all_data/indiamart_aligned_timings.json"),
+    "muthoot": ("data/muthoot.json", "all_data/muthoot_aligned_timings.json"),
 }
 
 
