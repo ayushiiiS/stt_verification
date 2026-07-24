@@ -97,7 +97,6 @@ const els = {
   speedSelect: document.getElementById("speedSelect"),
   volumeSlider: document.getElementById("volumeSlider"),
   audioSyncToggle: document.getElementById("audioSyncToggle"),
-  realignTimestampsBtn: document.getElementById("realignTimestampsBtn"),
   syncHint: document.getElementById("syncHint"),
   transcriptGrid: document.getElementById("transcriptGrid"),
   prevCallBtn: document.getElementById("prevCallBtn"),
@@ -1499,7 +1498,10 @@ function buildDraft(call) {
   const timings = call.timings || [];
   const turnSegments = call.timing_segments || [];
   const sttSegments = call.stt_segments || [];
-  const hasSttTiming = Boolean(call.hasStt && (stt.length || sttSegments.length || turnSegments.length));
+  const hasFaTiming = Boolean(call.hasFaTiming);
+  const hasSttTiming =
+    !hasFaTiming &&
+    Boolean(call.hasStt && (stt.length || sttSegments.length || turnSegments.length));
 
   // A partial save (e.g. one short test turn) must not hide the rest of the call.
   // Skip padding when the reviewer intentionally deleted turns.
@@ -1551,12 +1553,19 @@ function buildDraft(call) {
     const sttBounds = matchedBounds.start != null ? matchedBounds : sttMessageBounds(sttMsg);
     const savedStart = msg.start ?? timings[index]?.start;
     const savedEnd = msg.end ?? timings[index]?.end;
-    const fallbackStart = hasSttTiming
-      ? sttBounds.start ?? origTiming?.start ?? null
-      : origTiming?.start ?? sttBounds.start ?? null;
-    const fallbackEnd = hasSttTiming
-      ? sttBounds.end ?? origTiming?.end ?? null
-      : origTiming?.end ?? sttBounds.end ?? null;
+    const serverStart = timings[index]?.start;
+    const serverEnd = timings[index]?.end;
+    const hasServerTiming = usableSavedBounds(serverStart, serverEnd);
+    const fallbackStart = hasServerTiming
+      ? serverStart
+      : hasSttTiming
+        ? sttBounds.start ?? origTiming?.start ?? null
+        : origTiming?.start ?? sttBounds.start ?? null;
+    const fallbackEnd = hasServerTiming
+      ? serverEnd
+      : hasSttTiming
+        ? sttBounds.end ?? origTiming?.end ?? null
+        : origTiming?.end ?? sttBounds.end ?? null;
     const seeded =
       String(content).trim().length < 3 && orig?.content
         ? orig.content
@@ -1894,34 +1903,6 @@ async function handleFinalKeydown(event) {
   }
 }
 
-function realignTimestampsFromStt() {
-  const turnSegments = state.turnSegments?.length
-    ? state.turnSegments
-    : state.currentCall?.timing_segments || [];
-  if (!turnSegments.length || !state.draft.length) {
-    showToast("No STT timing data for this call");
-    return;
-  }
-
-  state.draft.forEach((msg, index) => {
-    const bounds = boundsFromSegments(turnSegments[index] || []);
-    if (bounds.start != null) msg.start = bounds.start;
-    if (bounds.end != null) msg.end = bounds.end;
-    msg.timingTouched = false;
-    attachWordTimings(msg, turnSegments[index] || []);
-  });
-
-  const duration = getPlaybackDuration();
-  if (duration > 0) {
-    alignDraftTimingsToAudio(duration);
-  }
-
-  rebuildPlaybackWordIndex();
-  renderTranscript({ preserveEdits: false });
-  syncHighlight();
-  showToast("Timestamps re-matched from STT", "success");
-}
-
 function refreshTurnWordTimings(index) {
   const msg = state.draft[index];
   if (!msg) return;
@@ -1960,6 +1941,7 @@ function handleFinalInput(event) {
 
 function alignDraftTimingsToAudio(duration) {
   if (!Number.isFinite(duration) || duration < 1 || !state.draft.length) return false;
+  if (state.currentCall?.hasFaTiming) return false;
   if (state.draft.some((msg) => msg.timingTouched)) return false;
   if (state.timingsAlignedCallId === state.currentCall?.id) return false;
 
@@ -3295,9 +3277,6 @@ if (els.audioSyncToggle) {
   els.audioSyncToggle.addEventListener("click", () => {
     setAudioSyncEnabled(!state.audioSyncEnabled);
   });
-}
-if (els.realignTimestampsBtn) {
-  els.realignTimestampsBtn.addEventListener("click", realignTimestampsFromStt);
 }
 updateAudioSyncChrome();
 

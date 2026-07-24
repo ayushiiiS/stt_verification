@@ -1317,15 +1317,28 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         turn_segment_groups.append([])
     turn_segment_groups = turn_segment_groups[: len(final_messages)]
 
+    fa_timings: list[dict] | None = None
+    fa_rows = aligned_timings.get(dataset, {}).get(call_id)
+    if fa_rows:
+        fa_candidate = timings_from_fa_store(fa_rows, len(final_messages))
+        if any(t.get("start") is not None for t in fa_candidate):
+            fa_timings = fa_candidate
+
     if saved_timings and len(saved_timings) == len(final_messages):
         timings = saved_timings
+    elif fa_timings:
+        timings = fa_timings
+    elif turn_segment_groups and any(group for group in turn_segment_groups):
+        timings = timings_from_matched_segments(turn_segment_groups)
     else:
-        if turn_segment_groups and any(group for group in turn_segment_groups):
-            timings = timings_from_matched_segments(turn_segment_groups)
-        else:
-            timings = get_turn_timings(
-                dataset, call_id, turn_count, original_messages=original_messages
-            )
+        timings = get_turn_timings(
+            dataset, call_id, turn_count, original_messages=original_messages
+        )
+        while len(timings) < len(final_messages):
+            timings.append({"start": None, "end": None})
+        timings = timings[: len(final_messages)]
+
+    if not (saved_timings and len(saved_timings) == len(final_messages)):
         while len(timings) < len(final_messages):
             timings.append({"start": None, "end": None})
         timings = timings[: len(final_messages)]
@@ -1343,6 +1356,7 @@ def build_call_payload(dataset: str, call_id: str) -> dict:
         "final_messages": final_messages,
         "timings": timings,
         "timing_segments": turn_segment_groups,
+        "hasFaTiming": bool(fa_timings),
         "edited": call_id in corrections[dataset],
         "turnLayoutEdited": turn_layout_was_edited(
             saved, original_messages, final_messages
