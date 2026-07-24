@@ -31,3 +31,9 @@ muthoot_with_public_urls .csv
 
 # Vercel build copies static/ → public/static
 public/static/
+
+# Handoff align pipeline (local tooling; large artifacts stay out of git)
+handoff/align_service/.venv/
+handoff/logs/
+handoff/all_data/
+handoff/**/__pycache__/
